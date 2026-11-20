@@ -1,36 +1,27 @@
-# Control de IP y VLAN para ISP
+# Gestor de IP + VLAN para ISP
 
-App web con login para registrar la IP y la VLAN de cada cliente, evitar duplicados dentro de la misma VLAN y exportar todo a Excel (ordenado por VLAN e IP).
+Aplicación web estática lista para publicar con GitHub Pages.
 
-- Usuario por defecto: `admin123`
-- Contrasena por defecto: `admin`
-- Cambialos con las variables `APP_USER` y `APP_PASSWORD` antes de usar datos reales.
+## Funciones
+- Registrar IPv4 y VLAN (1 a 4094).
+- Permite reutilizar una IP en VLAN diferentes.
+- Bloquea duplicados de la combinación IP + VLAN.
+- Campos adicionales: cliente, ONU/puerto, NAP y observaciones.
+- Buscar, editar y eliminar.
+- Guardado automático en el almacenamiento local del navegador.
+- Exportar a Excel (.xlsx), importar Excel y descargar copia JSON.
+- Diseño adaptable a Android y computador.
 
-## Probar en tu computador
+## Publicar en GitHub Pages
+1. Crea un repositorio en GitHub, por ejemplo `gestor-ip-vlan`.
+2. Sube `index.html` y este `README.md` a la raíz del repositorio.
+3. En GitHub entra a **Settings → Pages**.
+4. En **Build and deployment**, selecciona **Deploy from a branch**.
+5. Selecciona la rama `main` y la carpeta `/ (root)`, luego pulsa **Save**.
+6. Espera a que GitHub Pages genere el enlace. Abre ese enlace desde tu Android.
 
-    python -m venv venv
-    source venv/bin/activate        (en Windows: venv\Scripts\activate)
-    pip install -r requirements.txt
-    python app.py
+## Importante sobre la memoria
+Los registros quedan guardados en el navegador y dispositivo donde se ingresan. GitHub Pages publica la aplicación, pero no sincroniza datos entre celulares ni crea una base de datos en la nube. Para evitar perder información, descarga periódicamente el Excel o el respaldo JSON. Puedes importar esos archivos en otro dispositivo.
 
-Abre http://localhost:5000 (sin DATABASE_URL usa un archivo SQLite local).
-
-## Ponerla en internet (gratis)
-
-### 1. Base de datos en Neon (para que los datos no se borren)
-1. Crea una cuenta en https://neon.tech y un proyecto nuevo.
-2. Copia la cadena de conexion ("Connection string"), algo como
-   `postgresql://usuario:clave@host/neondb?sslmode=require`.
-
-### 2. Aplicacion en Render
-1. Sube este proyecto a tu repositorio de GitHub.
-2. En https://render.com entra con GitHub y elige New > Blueprint (o New > Web Service).
-3. Selecciona el repositorio. Render lee `render.yaml`.
-4. Cuando pida `DATABASE_URL`, pega la cadena de Neon.
-5. Cambia `APP_USER` y `APP_PASSWORD` por unos propios.
-6. Pulsa Deploy. Al terminar tendras un link publico `https://control-ip-vlan-xxxx.onrender.com`.
-
-Nota: en el plan gratis de Render la pagina se duerme si nadie la usa y tarda cerca de un minuto en despertar.
-
-## Regla anti-duplicados
-La tabla tiene una restriccion UNIQUE sobre la pareja (IP, VLAN): la misma IP puede estar en VLANs distintas, pero no repetirse dentro de la misma VLAN.
+## Excel
+La exportación/importación `.xlsx` usa la librería SheetJS desde CDN; se requiere conexión a internet al cargar la página para disponer de esa función.
