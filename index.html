@@ -262,6 +262,34 @@ table{border-color:#263c59}
  #app>.card:last-child{min-height:calc(100svh - 535px)}
 }
 
+
+/* Corrección: texto visible al escribir en cualquier campo */
+input,textarea,select{
+ color:#f3f7ff !important;
+ -webkit-text-fill-color:#f3f7ff;
+ caret-color:#65a9ff
+}
+input::placeholder,textarea::placeholder{
+ color:#9aacc3 !important;
+ -webkit-text-fill-color:#9aacc3;
+ opacity:1
+}
+body.field-entry-focus input:focus,
+body.field-entry-focus textarea:focus{
+ background:#eef6ff !important;
+ color:#172033 !important;
+ -webkit-text-fill-color:#172033 !important;
+ caret-color:#1264c5;
+}
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill{
+ -webkit-text-fill-color:#f3f7ff !important;
+ box-shadow:0 0 0 1000px #0a1b30 inset !important;
+ caret-color:#65a9ff
+}
+
 </style>
 </head>
 <body><div id="validationToast" class="toast-notification" role="alert" aria-live="assertive"></div><main class="wrap">
