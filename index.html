@@ -205,6 +205,31 @@ table{border-color:#263c59}
  #app>.card{padding:14px}
 }
 
+
+/* Aprovechar el alto disponible sin dejar un bloque vacío debajo */
+@media (max-width:600px){
+ html,body{min-height:100%;height:auto}
+ body{min-height:100dvh}
+ main.wrap{
+  display:flex;
+  flex-direction:column;
+  min-height:calc(100dvh - 14px);
+  width:100%
+ }
+ #app:not(.hidden){
+  display:flex;
+  flex:1 0 auto;
+  flex-direction:column;
+  min-height:calc(100dvh - 205px)
+ }
+ #app>.card:last-child{
+  flex:1 0 auto;
+  min-height:calc(100dvh - 535px);
+  margin-bottom:0
+ }
+ #app>.card:last-child .tablewrap{flex:1}
+}
+
 </style>
 </head>
 <body><div id="validationToast" class="toast-notification" role="alert" aria-live="assertive"></div><main class="wrap">
