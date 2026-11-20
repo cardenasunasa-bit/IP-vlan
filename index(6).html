@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gestor IP + VLAN para ISP</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+:root{font-family:Arial,sans-serif;color:#172033;background:#f3f6fb}*{box-sizing:border-box}body{margin:0;padding:16px}.wrap{max-width:1050px;margin:auto}.card{background:white;padding:18px;border-radius:14px;box-shadow:0 3px 14px #14213d12;margin:12px 0}h1{color:#1264c5;margin:8px 0}h2{font-size:19px;margin-top:0}.muted{color:#657187;font-size:14px}input,textarea,button{font:inherit;padding:12px;border:1px solid #ccd5e2;border-radius:8px;width:100%;margin:5px 0}button{background:#1264c5;color:white;border:0;font-weight:bold;cursor:pointer}button.secondary{background:#e8eef7;color:#17365f}button.danger{background:#b42318}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:8px}.actions{display:flex;gap:8px;flex-wrap:wrap}.actions button{width:auto;flex:1}.tablewrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:850px}th,td{padding:10px;border-bottom:1px solid #e5eaf1;text-align:left;font-size:14px}th{background:#f5f8fc}.hidden{display:none}.status{padding:10px;border-radius:8px;background:#edf5ff;margin:8px 0}.tag{font-size:12px;background:#e8f2ff;color:#1558a6;padding:4px 8px;border-radius:20px}.state{padding:8px 10px;border:0;border-radius:8px;color:white;font-weight:bold;cursor:pointer;width:auto;margin:0;white-space:nowrap}.state.on{background:#16803c}.state.off{background:#c62828}
+</style>
+</head>
+<body><main class="wrap">
+<header class="card"><h1>Gestor IP + VLAN para ISP</h1><div class="muted">Registro compartido de IP, VLAN, cliente, ONU/puerto y NAP.</div></header>
+<section id="login" class="card"><h2>Iniciar sesión</h2><p class="muted">Ingresa con el correo y la contraseña creados en Supabase.</p><input id="email" type="email" placeholder="Correo electrónico"><input id="password" type="password" placeholder="Contraseña"><button id="loginBtn">Entrar</button><div id="loginMsg" class="status">Conéctate para ver los registros compartidos.</div></section>
+<section id="app" class="hidden">
+<div class="card"><div class="actions"><div style="flex:2"><b id="userLabel">Sesión iniciada</b><div class="muted">Los cambios se sincronizan con Supabase.</div></div><button class="secondary" id="refreshBtn">Actualizar</button><button class="danger" id="logoutBtn">Salir</button></div></div>
+<div class="card"><h2 id="formTitle">Registrar IP</h2><input id="recordId" type="hidden"><div class="grid">
+<label>Dirección IP<input id="ip" placeholder="10.1.0.100"></label>
+<label>VLAN<input id="vlan" type="number" min="1" max="4094" placeholder="101"></label>
+<label>Cliente<input id="cliente" placeholder="Nombre del cliente"></label>
+<label>ONU / Puerto<input id="onu" placeholder="ONU o puerto"></label>
+<label>NAP / Caja<input id="nap" placeholder="NAP"></label>
+<label>Observaciones<input id="obs" placeholder="Observaciones"></label>
+</div><div class="actions"><button id="saveBtn">Guardar registro</button><button class="secondary" id="clearBtn">Limpiar</button></div><div id="formMsg" class="muted"></div></div>
+<div class="card"><h2>Registros guardados <span class="tag" id="count">0</span></h2><p class="muted">Verde: cliente activo e IP ocupada. Rojo: cliente desactivado e IP disponible para reasignar.</p><input id="search" placeholder="Buscar por IP, cliente, VLAN, NAP..."><div class="actions"><button class="secondary" id="exportBtn">Exportar Excel</button><button class="secondary" id="jsonBtn">Descargar copia JSON</button><label class="actions" style="align-items:center;flex:1"><span>Importar Excel</span><input id="importFile" type="file" accept=".xlsx,.xls,.csv"></label></div><div class="tablewrap"><table><thead><tr><th>IP</th><th>VLAN</th><th>Cliente</th><th>ONU/Puerto</th><th>NAP</th><th>Observaciones</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="rows"></tbody></table></div></div>
+</section></main>
+<script>
+const SUPABASE_URL='https://czbjwdvnrjyvvpewrbna.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY='sb_publishable_LvNtZFWHXs6cNxtyuiUAeQ_4qiHit0a';
+const db=supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+let records=[];
+const $=id=>document.getElementById(id);
+function msg(id,t){$(id).textContent=t}
+function validIP(s){const p=s.trim().split('.');return p.length===4&&p.every(x=>/^\d+$/.test(x)&&+x>=0&&+x<=255)}
+function suggestedVlan(ip){const m=ip.trim().match(/^10\.(\d+)\.0\.\d+$/);return m?Number(m[1])+100:null}
+function clearForm(){['recordId','ip','vlan','cliente','onu','nap','obs'].forEach(x=>$(x).value='');$('formTitle').textContent='Registrar IP';msg('formMsg','')}
+$('ip').addEventListener('input',()=>{const v=suggestedVlan($('ip').value);if(v&&(!$('vlan').value||$('vlan').dataset.auto==='1')){$('vlan').value=v;$('vlan').dataset.auto='1'}});
+$('vlan').addEventListener('input',()=>{$('vlan').dataset.auto='0'});
+async function load(){const {data,error}=await db.from('ip_registros').select('*').order('created_at',{ascending:false});if(error){msg('formMsg','Error al cargar: '+error.message);return}records=data||[];render()}
+function render(){const q=$('search').value.toLowerCase();const list=records.filter(r=>[r.ip,r.vlan,r.cliente,r.onu_puerto,r.nap,r.observaciones].join(' ').toLowerCase().includes(q));$('count').textContent=records.length;$('rows').innerHTML=list.map(r=>`<tr><td>${esc(r.ip)}</td><td>${r.vlan}</td><td>${esc(r.cliente||'')}</td><td>${esc(r.onu_puerto||'')}</td><td>${esc(r.nap||'')}</td><td>${esc(r.observaciones||'')}</td><td><button class="state ${r.activo===false?'off':'on'}" onclick="toggleActive('${r.id}')">${r.activo===false?'DESACTIVADO':'ACTIVO'}</button></td><td><button class="secondary" onclick="editRec('${r.id}')">Editar</button> <button class="danger" onclick="deleteRec('${r.id}')">Eliminar</button></td></tr>`).join('')||'<tr><td colspan="8">No hay registros para mostrar.</td></tr>'}
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+window.editRec=id=>{const r=records.find(x=>x.id===id);if(!r)return;$('recordId').value=r.id;$('ip').value=r.ip;$('vlan').value=r.vlan;$('cliente').value=r.cliente||'';$('onu').value=r.onu_puerto||'';$('nap').value=r.nap||'';$('obs').value=r.observaciones||'';$('formTitle').textContent='Editar registro';window.scrollTo({top:0,behavior:'smooth'})};
+window.toggleActive=async id=>{const r=records.find(x=>x.id===id);if(!r)return;const next=r.activo===false;const {error}=await db.from('ip_registros').update({activo:next}).eq('id',id);if(error){alert('No se pudo cambiar el estado: '+error.message);return}await load()};
+window.deleteRec=async id=>{if(!confirm('¿Eliminar este registro?'))return;const {error}=await db.from('ip_registros').delete().eq('id',id);if(error){alert(error.message);return}await load()};
+$('saveBtn').onclick=async()=>{
+ const ip=$('ip').value.trim(),vlan=Number($('vlan').value),id=$('recordId').value;
+ if(!validIP(ip)){msg('formMsg','Escribe una IP válida, por ejemplo 10.1.0.100.');return}
+ if(!Number.isInteger(vlan)||vlan<1||vlan>4094){msg('formMsg','La VLAN debe estar entre 1 y 4094.');return}
+ const payload={ip,vlan,cliente:$('cliente').value.trim(),onu_puerto:$('onu').value.trim(),nap:$('nap').value.trim(),observaciones:$('obs').value.trim()};
+ let result;
+ if(id){
+   result=await db.from('ip_registros').update(payload).eq('id',id);
+ }else{
+   const {data:existing,error:checkError}=await db.from('ip_registros').select('id,activo').eq('ip',ip).eq('vlan',vlan).maybeSingle();
+   if(checkError){msg('formMsg','No se pudo verificar si la IP está disponible: '+checkError.message);return}
+   if(existing&&existing.activo!==false){
+     const nombreCliente=(existing.cliente||'Sin nombre').trim();
+     const aviso=`ATENCIÓN: La IP ${ip} ya está registrada con el cliente ${nombreCliente}, en la VLAN ${existing.vlan}. No se puede asignar a otro cliente mientras esté activa.`;
+     msg('formMsg',aviso);
+     alert(aviso);
+     return
+   }
+   if(existing){
+     // Reutiliza el mismo registro: el cliente anterior deja de figurar y queda el nuevo.
+     result=await db.from('ip_registros').update({...payload,activo:true}).eq('id',existing.id);
+   }else{
+     result=await db.from('ip_registros').insert({...payload,activo:true});
+   }
+ }
+ if(result.error){msg('formMsg',result.error.code==='23505'?'Esa combinación de IP y VLAN ya está registrada.':result.error.message);return}
+ clearForm();msg('formMsg','Registro guardado. La IP queda asignada al cliente actual.');await load()
+};
+$('clearBtn').onclick=clearForm;$('search').oninput=render;$('refreshBtn').onclick=load;
+$('loginBtn').onclick=async()=>{msg('loginMsg','Conectando...');const {data,error}=await db.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});if(error){msg('loginMsg','No se pudo iniciar sesión: '+error.message);return}showApp(data.user)};
+function showApp(user){$('login').classList.add('hidden');$('app').classList.remove('hidden');$('userLabel').textContent=user.email||'Sesión iniciada';load()}
+$('logoutBtn').onclick=async()=>{await db.auth.signOut();$('app').classList.add('hidden');$('login').classList.remove('hidden')};
+db.auth.getSession().then(({data})=>{if(data.session)showApp(data.session.user)});
+$('exportBtn').onclick=()=>{const ws=XLSX.utils.json_to_sheet(records.map(({ip,vlan,cliente,onu_puerto,nap,observaciones,activo})=>({IP:ip,VLAN:vlan,Cliente:cliente,ONU_Puerto:onu_puerto,NAP:nap,Observaciones:observaciones,Estado:activo===false?'DESACTIVADO':'ACTIVO'})));const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'IPs');XLSX.writeFile(wb,'registros-ip-vlan.xlsx')};
+$('jsonBtn').onclick=()=>download('registros-ip-vlan.json',JSON.stringify(records,null,2),'application/json');
+function download(name,data,type){const a=document.createElement('a'),u=URL.createObjectURL(new Blob([data],{type}));a.href=u;a.download=name;a.click();URL.revokeObjectURL(u)}
+$('importFile').onchange=async e=>{const f=e.target.files[0];if(!f)return;const wb=XLSX.read(await f.arrayBuffer());const arr=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);let ok=0;for(const x of arr){const ip=String(x.IP??x.ip??'').trim(),vlan=Number(x.VLAN??x.vlan);if(!validIP(ip)||!Number.isInteger(vlan))continue;const {error}=await db.from('ip_registros').upsert({ip,vlan,cliente:x.Cliente??x.cliente??'',onu_puerto:x.ONU_Puerto??x.onu_puerto??'',nap:x.NAP??x.nap??'',observaciones:x.Observaciones??x.observaciones??'',activo:true},{onConflict:'ip,vlan'});if(!error)ok++}msg('formMsg',`Importación terminada: ${ok} registros procesados.`);e.target.value='';load()};
+</script></body></html>
