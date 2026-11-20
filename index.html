@@ -53,6 +53,14 @@ input,textarea,button{min-height:44px;font-size:16px}
  tbody td:last-child button{flex:1}
  .state{width:100%;min-height:40px}
 }
+
+/* Acceso directo a la interfaz web de cada ONU */
+tbody td:last-child button{min-width:88px}
+@media(max-width:600px){
+ tbody td:last-child{display:grid!important;grid-template-columns:1fr 1fr;gap:6px}
+ tbody td:last-child button:first-child{grid-column:1/-1}
+ tbody td:last-child button{min-height:42px;margin:0}
+}
 @media(max-width:360px){.grid{grid-template-columns:1fr}}
 
 
@@ -269,8 +277,19 @@ function clearForm(){document.body.classList.remove('field-entry-focus');['recor
 $('ip').addEventListener('input',()=>{const v=suggestedVlan($('ip').value);if(v&&(!$('vlan').value||$('vlan').dataset.auto==='1')){$('vlan').value=v;$('vlan').dataset.auto='1'}});
 $('vlan').addEventListener('input',()=>{$('vlan').dataset.auto='0'});
 async function load(){const {data,error}=await db.from('ip_registros').select('*').order('created_at',{ascending:false});if(error){msg('formMsg','Error al cargar: '+error.message);return}records=data||[];render()}
-function render(){const q=$('search').value.toLowerCase();const list=records.filter(r=>[r.ip,r.vlan,r.cliente,r.onu_puerto,r.nap,r.observaciones].join(' ').toLowerCase().includes(q));$('count').textContent=records.length;$('rows').innerHTML=list.map(r=>`<tr><td data-label="IP">${esc(r.ip)}</td><td data-label="VLAN">${r.vlan}</td><td data-label="Cliente">${esc(r.cliente||'')}</td><td data-label="ONU / Puerto">${esc(r.onu_puerto||'')}</td><td data-label="NAP">${esc(r.nap||'')}</td><td data-label="Observaciones">${esc(r.observaciones||'')}</td><td data-label="Estado"><button class="state ${r.activo===false?'off':'on'}" onclick="toggleActive('${r.id}')">${r.activo===false?'DESACTIVADO':'ACTIVO'}</button></td><td data-label="Acciones"><button class="secondary" onclick="editRec('${r.id}')">Editar</button> <button class="danger" onclick="deleteRec('${r.id}')">Eliminar</button></td></tr>`).join('')||'<tr><td colspan="8">No hay registros para mostrar.</td></tr>'}
+function render(){const q=$('search').value.toLowerCase();const list=records.filter(r=>[r.ip,r.vlan,r.cliente,r.onu_puerto,r.nap,r.observaciones].join(' ').toLowerCase().includes(q));$('count').textContent=records.length;$('rows').innerHTML=list.map(r=>`<tr><td data-label="IP">${esc(r.ip)}</td><td data-label="VLAN">${r.vlan}</td><td data-label="Cliente">${esc(r.cliente||'')}</td><td data-label="ONU / Puerto">${esc(r.onu_puerto||'')}</td><td data-label="NAP">${esc(r.nap||'')}</td><td data-label="Observaciones">${esc(r.observaciones||'')}</td><td data-label="Estado"><button class="state ${r.activo===false?'off':'on'}" onclick="toggleActive('${r.id}')">${r.activo===false?'DESACTIVADO':'ACTIVO'}</button></td><td data-label="Acciones"><button class="secondary" onclick="openIP('${r.id}')">Abrir ONU</button><button class="secondary" onclick="editRec('${r.id}')">Editar</button><button class="danger" onclick="deleteRec('${r.id}')">Eliminar</button></td></tr>`).join('')||'<tr><td colspan="8">No hay registros para mostrar.</td></tr>'}
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+window.openIP=id=>{
+ const r=records.find(x=>String(x.id)===String(id));
+ if(!r)return;
+ const ip=String(r.ip||'').trim();
+ if(!validIP(ip)){
+  notifyInvalid('Este registro no tiene una dirección IP válida para abrir.');
+  return;
+ }
+ // Se abre desde el toque del usuario para evitar bloqueos de ventanas emergentes.
+ window.open('http://'+ip+'/', '_blank', 'noopener,noreferrer');
+};
 window.editRec=id=>{const r=records.find(x=>x.id===id);if(!r)return;$('recordId').value=r.id;$('ip').value=r.ip;$('vlan').value=r.vlan;$('cliente').value=r.cliente||'';$('onu').value=r.onu_puerto||'';$('nap').value=r.nap||'';$('obs').value=r.observaciones||'';$('formTitle').textContent='Editar registro';window.scrollTo({top:0,behavior:'smooth'})};
 window.toggleActive=async id=>{const r=records.find(x=>x.id===id);if(!r)return;const next=r.activo===false;const {error}=await db.from('ip_registros').update({activo:next}).eq('id',id);if(error){alert('No se pudo cambiar el estado: '+error.message);return}await load()};
 window.deleteRec=async id=>{if(!confirm('¿Eliminar este registro?'))return;const {error}=await db.from('ip_registros').delete().eq('id',id);if(error){alert(error.message);return}await load()};
