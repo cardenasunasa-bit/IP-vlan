@@ -81,9 +81,20 @@ input,textarea{transition:all .18s ease}
 }
 
 html,body{touch-action:pan-x pan-y}
+
+.toast-notification{
+ position:fixed;left:50%;bottom:22px;transform:translateX(-50%);
+ z-index:99999;width:calc(100% - 32px);max-width:520px;
+ padding:14px 16px;border-radius:12px;background:#b42318;color:#fff;
+ box-shadow:0 8px 28px #0003;font-weight:700;text-align:center;
+ display:none;line-height:1.4
+}
+.toast-notification.show{display:block;animation:toastIn .18s ease-out}
+@keyframes toastIn{from{opacity:0;transform:translate(-50%,10px)}to{opacity:1;transform:translate(-50%,0)}}
+
 </style>
 </head>
-<body><main class="wrap">
+<body><div id="validationToast" class="toast-notification" role="alert" aria-live="assertive"></div><main class="wrap">
 <header class="card"><h1>Gestor IP + VLAN para ISP</h1><div class="muted">Registro compartido de IP, VLAN, cliente, ONU/puerto y NAP.</div></header>
 <section id="login" class="card"><h2>Iniciar sesión</h2><p class="muted">Ingresa con el correo y la contraseña creados en Supabase.</p><input id="email" type="email" placeholder="Correo electrónico"><input id="password" type="password" placeholder="Contraseña"><button id="loginBtn">Entrar</button>
 <button id="forgotBtn" class="secondary">¿Olvidaste tu contraseña?</button>
@@ -123,7 +134,19 @@ const db=supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 let records=[];
 const $=id=>document.getElementById(id);
 function msg(id,t){$(id).textContent=t}
-function validIP(s){const p=s.trim().split('.');return p.length===4&&p.every(x=>/^\d+$/.test(x)&&+x>=0&&+x<=255)}
+let toastTimer=null;
+function notifyInvalid(text){
+ const toast=$('validationToast');
+ toast.textContent=text;
+ toast.classList.add('show');
+ clearTimeout(toastTimer);
+ toastTimer=setTimeout(()=>toast.classList.remove('show'),3800);
+}
+function validIP(s){
+ const value=s.trim();
+ const p=value.split('.');
+ return /^\d{1,3}(\.\d{1,3}){3}$/.test(value)&&p.length===4&&p.every(x=>Number(x)>=0&&Number(x)<=255);
+}
 function suggestedVlan(ip){const m=ip.trim().match(/^10\.(\d+)\.0\.\d+$/);return m?Number(m[1])+100:null}
 function clearForm(){document.body.classList.remove('field-entry-focus');['recordId','ip','vlan','cliente','onu','nap','obs'].forEach(x=>$(x).value='');$('formTitle').textContent='Registrar IP';msg('formMsg','')}
 $('ip').addEventListener('input',()=>{const v=suggestedVlan($('ip').value);if(v&&(!$('vlan').value||$('vlan').dataset.auto==='1')){$('vlan').value=v;$('vlan').dataset.auto='1'}});
@@ -136,8 +159,16 @@ window.toggleActive=async id=>{const r=records.find(x=>x.id===id);if(!r)return;c
 window.deleteRec=async id=>{if(!confirm('¿Eliminar este registro?'))return;const {error}=await db.from('ip_registros').delete().eq('id',id);if(error){alert(error.message);return}await load()};
 $('saveBtn').onclick=async()=>{
  const ip=$('ip').value.trim(),vlan=Number($('vlan').value),id=$('recordId').value;
- if(!validIP(ip)){msg('formMsg','Escribe una IP válida, por ejemplo 10.1.0.100.');return}
- if(!Number.isInteger(vlan)||vlan<1||vlan>4094){msg('formMsg','La VLAN debe estar entre 1 y 4094.');return}
+ if(!validIP(ip)){
+  notifyInvalid('IP no válida. Debe tener 4 números separados por puntos (0 a 255 cada uno). Ejemplo: 10.1.0.100');
+  msg('formMsg','Corrige la dirección IP antes de guardar.');
+  $('ip').focus();return
+ }
+ if(!Number.isInteger(vlan)||vlan<1||vlan>4094){
+  notifyInvalid('VLAN no válida. Escribe un número entero entre 1 y 4094, sin decimales.');
+  msg('formMsg','Corrige la VLAN antes de guardar.');
+  $('vlan').focus();return
+ }
  const payload={ip,vlan,cliente:$('cliente').value.trim(),onu_puerto:$('onu').value.trim(),nap:$('nap').value.trim(),observaciones:$('obs').value.trim()};
  let result;
  if(id){
