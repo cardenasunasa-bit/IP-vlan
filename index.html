@@ -56,6 +56,30 @@ input,textarea,button{min-height:44px;font-size:16px}
 }
 @media(max-width:360px){.grid{grid-template-columns:1fr}}
 
+
+/* Enfoque temporal para TODOS los campos en celulares */
+input,textarea{transition:all .18s ease}
+@media(max-width:600px){
+  body.field-entry-focus .grid label:focus-within{
+    grid-column:1/-1;
+  }
+  body.field-entry-focus input:focus,
+  body.field-entry-focus textarea:focus{
+    width:100%;
+    min-height:60px;
+    font-size:22px;
+    font-weight:700;
+    padding:14px 12px;
+    border:2px solid #1264c5;
+    background:#eef6ff;
+    box-shadow:0 0 0 3px rgba(18,100,197,.12);
+  }
+  body.field-entry-focus .card:has(input:focus),
+  body.field-entry-focus .card:has(textarea:focus){
+    border:2px solid rgba(18,100,197,.28);
+  }
+}
+
 </style>
 </head>
 <body><main class="wrap">
@@ -100,7 +124,7 @@ const $=id=>document.getElementById(id);
 function msg(id,t){$(id).textContent=t}
 function validIP(s){const p=s.trim().split('.');return p.length===4&&p.every(x=>/^\d+$/.test(x)&&+x>=0&&+x<=255)}
 function suggestedVlan(ip){const m=ip.trim().match(/^10\.(\d+)\.0\.\d+$/);return m?Number(m[1])+100:null}
-function clearForm(){['recordId','ip','vlan','cliente','onu','nap','obs'].forEach(x=>$(x).value='');$('formTitle').textContent='Registrar IP';msg('formMsg','')}
+function clearForm(){document.body.classList.remove('field-entry-focus');['recordId','ip','vlan','cliente','onu','nap','obs'].forEach(x=>$(x).value='');$('formTitle').textContent='Registrar IP';msg('formMsg','')}
 $('ip').addEventListener('input',()=>{const v=suggestedVlan($('ip').value);if(v&&(!$('vlan').value||$('vlan').dataset.auto==='1')){$('vlan').value=v;$('vlan').dataset.auto='1'}});
 $('vlan').addEventListener('input',()=>{$('vlan').dataset.auto='0'});
 async function load(){const {data,error}=await db.from('ip_registros').select('*').order('created_at',{ascending:false});if(error){msg('formMsg','Error al cargar: '+error.message);return}records=data||[];render()}
@@ -187,5 +211,25 @@ window.addEventListener('appinstalled',()=>{installButton.style.display='none'})
 if('serviceWorker' in navigator && location.protocol.startsWith('http')){
  window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(err=>console.warn('No se pudo activar el modo instalable:',err)));
 }
+
+
+// Al tocar cualquier campo de texto, se amplía temporalmente.
+document.addEventListener('focusin',event=>{
+ const field=event.target;
+ if(field.matches('input,textarea')){
+   document.body.classList.add('field-entry-focus');
+   setTimeout(()=>field.scrollIntoView({behavior:'smooth',block:'center'}),120);
+ }
+});
+document.addEventListener('focusout',event=>{
+ if(event.target.matches('input,textarea')){
+   setTimeout(()=>{
+     const active=document.activeElement;
+     if(!active || !active.matches('input,textarea')){
+       document.body.classList.remove('field-entry-focus');
+     }
+   },80);
+ }
+});
 
 </script></body></html>
