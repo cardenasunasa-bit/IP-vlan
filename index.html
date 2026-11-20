@@ -230,6 +230,38 @@ table{border-color:#263c59}
  #app>.card:last-child .tablewrap{flex:1}
 }
 
+
+/* Presentación para PIPE NET instalada en Android */
+@media (display-mode: standalone), (display-mode: fullscreen){
+ html,body{width:100%;min-height:100%;margin:0}
+ body{min-height:100dvh;min-height:100svh}
+ main.wrap{
+  width:100%;
+  max-width:1180px;
+  min-height:100dvh;
+  min-height:100svh;
+  margin:0 auto;
+  box-sizing:border-box
+ }
+ #app:not(.hidden){
+  min-height:calc(100dvh - 205px);
+  min-height:calc(100svh - 205px)
+ }
+ #app>.card:last-child{
+  flex:1 0 auto;
+  min-height:calc(100dvh - 535px);
+  min-height:calc(100svh - 535px);
+  margin-bottom:0
+ }
+}
+@media (max-width:600px) and (display-mode:standalone),
+       (max-width:600px) and (display-mode:fullscreen){
+ body{padding:10px 10px max(10px,env(safe-area-inset-bottom))}
+ main.wrap{min-height:calc(100svh - 10px)}
+ #app:not(.hidden){min-height:calc(100svh - 205px)}
+ #app>.card:last-child{min-height:calc(100svh - 535px)}
+}
+
 </style>
 </head>
 <body><div id="validationToast" class="toast-notification" role="alert" aria-live="assertive"></div><main class="wrap">
