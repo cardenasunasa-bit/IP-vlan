@@ -151,6 +151,60 @@ table{border-color:#263c59}
  th,td{font-size:12px}
 }
 
+
+/* Ajuste de espacio: contenido ligeramente mayor y panel inferior extendido */
+.wrap{width:min(100%,1180px)}
+@media(min-width:601px){
+ body{padding:18px}
+ .card{padding:20px;margin:14px 0}
+}
+@media(max-width:600px){
+ body{padding:10px;padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+ main.wrap{min-height:calc(100dvh - 22px)}
+ #app:not(.hidden){
+  display:flex;
+  flex-direction:column;
+  min-height:calc(100dvh - 22px)
+ }
+ #app>.card{padding:16px;margin:9px 0;border-radius:15px}
+ #app>.card:first-child{padding:15px}
+ #app>.card:nth-child(2){padding:17px}
+ #app>.card:last-child{
+  flex:1 0 auto;
+  min-height:36vh;
+  display:flex;
+  flex-direction:column
+ }
+ header.card{padding:16px;margin-top:4px}
+ h1{font-size:25px;line-height:1.2;margin:7px 0}
+ h2{font-size:19px;line-height:1.25;margin-bottom:11px}
+ .muted{font-size:14px;line-height:1.4}
+ .grid{grid-template-columns:1fr 1fr;gap:9px}
+ .grid label{font-size:14px;line-height:1.35}
+ input,textarea,select{min-height:49px;padding:12px;font-size:16px}
+ .grid input{min-height:49px;padding:11px 10px}
+ .actions{gap:9px}
+ .actions button{min-height:48px;padding:11px 9px;font-size:14px}
+ #app>.card:first-child .actions>div{margin-bottom:3px}
+ #app>.card:last-child #search{min-height:48px;margin:7px 0 10px}
+ #app>.card:last-child .actions{margin-bottom:8px}
+ #app>.card:last-child .tablewrap{
+  flex:1;
+  min-height:25vh;
+  overflow:visible
+ }
+ tbody tr{padding:13px 0;gap:8px}
+ tbody td{font-size:14px;padding:5px 6px;line-height:1.35}
+ tbody td:before{font-size:11px;margin-bottom:4px}
+ tbody td:last-child button{min-height:43px}
+ .state{min-height:43px;font-size:13px}
+ .tag{font-size:13px;padding:5px 9px}
+}
+@media(max-width:360px){
+ .grid{grid-template-columns:1fr}
+ #app>.card{padding:14px}
+}
+
 </style>
 </head>
 <body><div id="validationToast" class="toast-notification" role="alert" aria-live="assertive"></div><main class="wrap">
