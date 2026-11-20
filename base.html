@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Control de IP y VLAN</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; margin: 0; background: #f4f6f8; color: #222; }
+    header { background: #305496; color: #fff; padding: 14px 20px; display: flex; justify-content: space-between; align-items: center; }
+    header h2 { margin: 0; font-size: 18px; }
+    main { max-width: 1000px; margin: 20px auto; padding: 0 14px; }
+    .card { background: #fff; border-radius: 8px; padding: 16px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+    input { padding: 9px; border: 1px solid #bbb; border-radius: 4px; width: 100%; font-size: 15px; }
+    button, .btn { background: #305496; color: #fff; border: 0; padding: 9px 14px; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 14px; display: inline-block; }
+    .rojo { background: #c0392b; } .verde { background: #2e7d32; } .gris { background: #6b7785; }
+    .tabla { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 560px; }
+    th, td { padding: 8px; border-bottom: 1px solid #ddd; text-align: left; font-size: 14px; }
+    th { background: #eef2f7; }
+    .msg { padding: 10px; border-radius: 4px; margin-bottom: 10px; }
+    .msg.ok { background: #e1f4e3; color: #1b5e20; }
+    .msg.error { background: #fde4e1; color: #b71c1c; font-weight: bold; }
+    .barra { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .barra input { width: auto; flex: 1; min-width: 160px; }
+    .acciones { display: flex; gap: 6px; }
+    .acciones form { margin: 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h2>Control de IP y VLAN</h2>
+    {% if session.get('auth') %}
+    <form method="post" action="{{ url_for('logout') }}" style="margin:0">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="gris" type="submit">Salir</button>
+    </form>
+    {% endif %}
+  </header>
+  <main>
+    {% with mensajes = get_flashed_messages(with_categories=true) %}
+      {% for cat, texto in mensajes %}<div class="msg {{ cat }}">{{ texto }}</div>{% endfor %}
+    {% endwith %}
+    {% block contenido %}{% endblock %}
+  </main>
+</body>
+</html>
