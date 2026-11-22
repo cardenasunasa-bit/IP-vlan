@@ -202,6 +202,7 @@ html,body{touch-action:pan-x pan-y}
 .pipe-zoom-controls button{width:auto;min-width:45px;min-height:44px;margin:0;padding:8px 12px}
 .pipe-zoom-controls output{font-weight:700;min-width:48px;text-align:center}
 @media(max-width:600px){.pipe-zoom-controls{justify-content:center}}
+html, body { overscroll-behavior-y: none; }
 </style>
 </head>
 <body><div id="validationToast" class="toast-notification" role="alert" aria-live="assertive"></div><main class="wrap">
@@ -310,11 +311,65 @@ function suggestedVlan(ip){const m=ip.trim().match(/^10\.(\d+)\.0\.\d+$/);return
 function clearForm(){document.body.classList.remove('field-entry-focus');['recordId','ip','vlan','cliente','onu','nap','obs'].forEach(x=>$(x).value='');$('formTitle').textContent='Registrar IP';msg('formMsg','')}
 $('ip').addEventListener('input',()=>{const v=suggestedVlan($('ip').value);if(v&&(!$('vlan').value||$('vlan').dataset.auto==='1')){$('vlan').value=v;$('vlan').dataset.auto='1'}});
 $('vlan').addEventListener('input',()=>{$('vlan').dataset.auto='0'});
+// PIPE NET offline: datos locales por usuario y empresa, cola durable y detección de conflictos.
+let offlineUserId=null, syncBusy=false, syncError='';
+const OFFDB='pipe-net-offline-v1';
+function localDB(){return new Promise((resolve,reject)=>{const r=indexedDB.open(OFFDB,1);r.onupgradeneeded=()=>{const d=r.result;d.createObjectStore('workspaces');d.createObjectStore('operations',{keyPath:'key'});d.createObjectStore('profiles')};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}
+async function storeGet(store,key){const d=await localDB();return new Promise((resolve,reject)=>{const t=d.transaction(store,'readonly'),r=t.objectStore(store).get(key);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);t.oncomplete=()=>d.close()})}
+async function storePut(store,value,key){const d=await localDB();return new Promise((resolve,reject)=>{const t=d.transaction(store,'readwrite');t.objectStore(store).put(value,key);t.oncomplete=()=>{d.close();resolve()};t.onerror=()=>reject(t.error)})}
+async function storeDel(store,key){const d=await localDB();return new Promise((resolve,reject)=>{const t=d.transaction(store,'readwrite');t.objectStore(store).delete(key);t.oncomplete=()=>{d.close();resolve()};t.onerror=()=>reject(t.error)})}
+async function storeAll(store){const d=await localDB();return new Promise((resolve,reject)=>{const t=d.transaction(store,'readonly'),r=t.objectStore(store).getAll();r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);t.oncomplete=()=>d.close()})}
+function workspaceKey(){return offlineUserId&&activeCompanyId?offlineUserId+'|'+activeCompanyId:null}
+async function pendingOps(){const k=workspaceKey();return k?(await storeAll('operations')).filter(o=>o.workspace===k).sort((a,b)=>a.created-b.created):[]}
+async function updateOfflineStatus(){const el=document.getElementById('pipeNetNetworkStatus');if(!el)return;const ops=await pendingOps().catch(()=>[]),n=ops.length;el.textContent=!navigator.onLine?'Sin internet · '+n+' pendiente(s)':syncBusy?'Sincronizando · '+n+' pendiente(s)':syncError?'Revisar sincronización · '+n+' pendiente(s)':n?n+' cambio(s) pendientes':'Actualizado';el.style.background=!navigator.onLine?'#991b1b':syncError?'#92400e':n?'#92400e':'#166534'}
+async function persistWorkspace(){const k=workspaceKey();if(k)await storePut('workspaces',{records,updated:Date.now()},k);await updateOfflineStatus()}
+async function localRestore(){const k=workspaceKey();if(!k)return false;const saved=await storeGet('workspaces',k);if(!saved)return false;records=saved.records||[];render();await updateOfflineStatus();return true}
+async function queueChange(type,record,base){
+ const k=workspaceKey();if(!k)throw Error('Sin sesión local verificada');
+ const prior=(await pendingOps()).find(o=>o.record.id===record.id);
+ if(prior){
+  if(prior.type==='insert'&&type==='delete'){await storeDel('operations',prior.key);return}
+  if(prior.type==='insert'){prior.record={...record};await storePut('operations',prior);return}
+  prior.type=type;prior.record={...record};await storePut('operations',prior);return;
+ }
+ const op={key:crypto.randomUUID(),workspace:k,user:offlineUserId,company:activeCompanyId,type,record:{...record},base:base?{id:base.id,updated_at:base.updated_at??null,ip:base.ip,vlan:base.vlan}:null,created:Date.now()};await storePut('operations',op);
+}
+function canOfflineWrite(){return !!(offlineUserId&&currentProfile&&['owner','company_admin','technician'].includes(currentProfile.role)&&activeCompanyId)}
+function conflictError(message){const e=new Error(message);e.isConflict=true;return e}
+async function applyOperation(op){
+ if(op.type==='insert'){
+  const {data:existing,error:readError}=await db.from('ip_registros').select('id').eq('id',op.record.id).eq('company_id',op.company).maybeSingle();if(readError)throw readError;
+  if(existing)return; // idempotencia: ya se insertó en un intento anterior
+  const {error}=await db.from('ip_registros').insert(op.record);if(error)throw error;return;
+ }
+ const {data:server,error:readError}=await db.from('ip_registros').select('*').eq('id',op.record.id).eq('company_id',op.company).maybeSingle();if(readError)throw readError;
+ if(!server){if(op.type==='delete')return;throw conflictError('Registro eliminado en otro dispositivo')}
+ // Evita sobrescribir cambios ajenos; comparar contenido cuando updated_at no cambia.
+ if(op.base && (server.updated_at!==op.base.updated_at || server.ip!==op.base.ip || server.vlan!==op.base.vlan))throw conflictError('Registro modificado en otro dispositivo');
+ let query=op.type==='delete'?db.from('ip_registros').delete():db.from('ip_registros').update(op.record);
+ query=query.eq('id',op.record.id).eq('company_id',op.company);
+ if(op.base){query=op.base.updated_at==null?query.is('updated_at',null):query.eq('updated_at',op.base.updated_at)}
+ const {data,error}=await query.select('id');if(error)throw error;if(!data?.length)throw conflictError('El registro cambió mientras se sincronizaba');
+}
+async function syncPending(){if(syncBusy||!navigator.onLine||!workspaceKey())return;syncBusy=true;syncError='';await updateOfflineStatus();try{
+ const {data:{user},error:authError}=await db.auth.getUser();if(authError||!user||user.id!==offlineUserId)throw Error('Sesión sin verificar; vuelve a conectarte');
+ const {data:profile,error:profileError}=await db.from('profiles').select('company_id,role,is_active').eq('user_id',user.id).single();if(profileError||!profile?.is_active||!['owner','company_admin','technician'].includes(profile.role))throw Error('Permisos sin verificar');
+ if(profile.role!=='owner'&&profile.company_id!==activeCompanyId)throw Error('Empresa de la sesión diferente');
+ for(const op of await pendingOps()){
+  if(!navigator.onLine||workspaceKey()!==op.workspace)break;
+  try{await applyOperation(op);await storeDel('operations',op.key)}catch(e){syncError=e.isConflict?'Conflicto: '+e.message:'Pendiente: '+e.message;break}
+ }
+ if(!syncError&&navigator.onLine)await load();
+ }catch(e){syncError=e.message||String(e)}finally{syncBusy=false;await updateOfflineStatus();if(syncError)msg('formMsg','Sincronización pendiente: '+syncError+'. No se descartaron los cambios.')}
+}
+window.addEventListener('online',()=>{setTimeout(()=>syncPending().catch(console.error),900)});
 async function load(){
  if(!currentProfile||!activeCompanyId){records=[];render();return}
+ if(!navigator.onLine){if(!await localRestore())msg('formMsg','Sin conexión y sin copia local previa para esta empresa.');return}
  const {data,error}=await db.from('ip_registros').select('*').eq('company_id',activeCompanyId).order('created_at',{ascending:false});
- if(error){msg('formMsg','Error al cargar: '+error.message);return}
- records=data||[];render()
+ if(error){await localRestore();msg('formMsg','No se pudo actualizar desde Supabase. Se muestran datos locales.');return}
+ const pending=await pendingOps();if(pending.length){await localRestore();msg('formMsg','Hay cambios pendientes. Se conservan los datos locales hasta sincronizar.');return}
+ records=data||[];render();await persistWorkspace();
 }
 function render(){const q=$('search').value.toLowerCase();const list=records.filter(r=>[r.ip,r.vlan,r.cliente,r.onu_puerto,r.nap,r.observaciones].join(' ').toLowerCase().includes(q));const canWrite=currentProfile&&['owner','company_admin','technician'].includes(currentProfile.role);$('count').textContent=records.length;$('rows').innerHTML=list.map(r=>`<tr><td data-label="IP">${esc(r.ip)}</td><td data-label="VLAN">${r.vlan}</td><td data-label="Cliente">${esc(r.cliente||'')}</td><td data-label="ONU / Puerto">${esc(r.onu_puerto||'')}</td><td data-label="NAP">${esc(r.nap||'')}</td><td data-label="Observaciones">${esc(r.observaciones||'')}</td><td data-label="Estado">${canWrite?`<button class="state ${r.activo===false?'off':'on'}" onclick="toggleActive('${r.id}')">${r.activo===false?'DESACTIVADO':'ACTIVO'}</button>`:(r.activo===false?'DESACTIVADO':'ACTIVO')}</td><td data-label="Acciones"><button class="secondary" onclick="openIP('${r.id}')">Abrir ONU</button>${canWrite?`<button class="secondary" onclick="editRec('${r.id}')">Editar</button><button class="danger" onclick="deleteRec('${r.id}')">Eliminar</button>`:''}</td></tr>`).join('')||'<tr><td colspan="8">No hay registros para mostrar.</td></tr>'}
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -330,45 +385,45 @@ window.openIP=id=>{
  window.open('http://'+ip+'/', '_blank', 'noopener,noreferrer');
 };
 window.editRec=id=>{if(!currentProfile||!['owner','company_admin','technician'].includes(currentProfile.role))return;const r=records.find(x=>x.id===id);if(!r)return;$('recordId').value=r.id;$('ip').value=r.ip;$('vlan').value=r.vlan;$('cliente').value=r.cliente||'';$('onu').value=r.onu_puerto||'';$('nap').value=r.nap||'';$('obs').value=r.observaciones||'';$('formTitle').textContent='Editar registro';window.scrollTo({top:0,behavior:'smooth'})};
-window.toggleActive=async id=>{if(!currentProfile||!['owner','company_admin','technician'].includes(currentProfile.role))return;const r=records.find(x=>x.id===id);if(!r)return;const next=r.activo===false;const {error}=await db.from('ip_registros').update({activo:next}).eq('id',id).eq('company_id',activeCompanyId);if(error){alert('No se pudo cambiar el estado: '+error.message);return}await load()};
-window.deleteRec=async id=>{if(!currentProfile||!['owner','company_admin','technician'].includes(currentProfile.role))return;if(!confirm('¿Eliminar este registro?'))return;const {error}=await db.from('ip_registros').delete().eq('id',id).eq('company_id',activeCompanyId);if(error){alert(error.message);return}await load()};
+window.toggleActive=async id=>{if(!canOfflineWrite())return;if(navigator.onLine&&(await pendingOps()).length){await syncPending();return}const r=records.find(x=>x.id===id);if(!r)return;
+ if(!navigator.onLine){const next={...r,activo:r.activo===false,updated_at:new Date().toISOString()};await queueChange('update',next,r);records=records.map(x=>x.id===id?next:x);render();await persistWorkspace();return}
+ const {error}=await db.from('ip_registros').update({activo:r.activo===false}).eq('id',id).eq('company_id',activeCompanyId);if(error){alert(error.message);return}await load()};
+window.deleteRec=async id=>{if(!canOfflineWrite())return;if(navigator.onLine&&(await pendingOps()).length){await syncPending();return}if(!confirm('¿Eliminar este registro?'))return;const r=records.find(x=>x.id===id);if(!r)return;
+ if(!navigator.onLine){await queueChange('delete',r,r);records=records.filter(x=>x.id!==id);render();await persistWorkspace();return}
+ const {error}=await db.from('ip_registros').delete().eq('id',id).eq('company_id',activeCompanyId);if(error){alert(error.message);return}await load()};
 $('saveBtn').onclick=async()=>{
+ try {
  const ip=$('ip').value.trim(),vlan=Number($('vlan').value),id=$('recordId').value;
- if(!validIP(ip)){
-  notifyInvalid('IP no válida. Debe tener 4 números separados por puntos (0 a 255 cada uno). Ejemplo: 10.1.0.100');
-  msg('formMsg','Corrige la dirección IP antes de guardar.');
-  $('ip').focus();return
- }
- if(!Number.isInteger(vlan)||vlan<1||vlan>4094){
-  notifyInvalid('VLAN no válida. Escribe un número entero entre 1 y 4094, sin decimales.');
-  msg('formMsg','Corrige la VLAN antes de guardar.');
-  $('vlan').focus();return
- }
- if(!currentProfile||!['owner','company_admin','technician'].includes(currentProfile.role)){msg('formMsg','Tu perfil no tiene permiso para guardar registros.');return}
- if(!activeCompanyId){msg('formMsg','No hay una empresa seleccionada.');return}
+ if(!validIP(ip)){notifyInvalid('IP no válida. Usa cuatro números de 0 a 255.');return}
+ if(!Number.isInteger(vlan)||vlan<1||vlan>4094){notifyInvalid('VLAN debe estar entre 1 y 4094.');return}
+ if(!canOfflineWrite()){msg('formMsg','Sin permisos de escritura verificados.');return}
  const payload={ip,vlan,cliente:$('cliente').value.trim(),onu_puerto:$('onu').value.trim(),nap:$('nap').value.trim(),observaciones:$('obs').value.trim(),company_id:activeCompanyId};
- let result;
- if(id){
-   result=await db.from('ip_registros').update(payload).eq('id',id).eq('company_id',activeCompanyId);
- }else{
-   const {data:existing,error:checkError}=await db.from('ip_registros').select('id,activo,cliente,vlan').eq('company_id',activeCompanyId).eq('ip',ip).eq('vlan',vlan).maybeSingle();
-   if(checkError){msg('formMsg','No se pudo verificar si la IP está disponible: '+checkError.message);return}
-   if(existing&&existing.activo!==false){
-     const nombreCliente=(existing.cliente||'Sin nombre').trim();
-     const aviso=`ATENCIÓN: La IP ${ip} ya está registrada con el cliente ${nombreCliente}, en la VLAN ${existing.vlan}. No se puede asignar a otro cliente mientras esté activa.`;
-     msg('formMsg',aviso);
-     alert(aviso);
-     return
-   }
-   if(existing){
-     // Reutiliza el mismo registro: el cliente anterior deja de figurar y queda el nuevo.
-     result=await db.from('ip_registros').update({...payload,activo:true}).eq('id',existing.id).eq('company_id',activeCompanyId);
-   }else{
-     result=await db.from('ip_registros').insert({...payload,activo:true});
-   }
+ if(navigator.onLine&&(await pendingOps()).length){msg('formMsg','Primero deben sincronizarse los cambios pendientes.');await syncPending();return}
+ if(!navigator.onLine){
+  const existing=records.find(r=>r.company_id===activeCompanyId&&r.ip===ip&&Number(r.vlan)===vlan);
+  if(existing&&existing.id!==id&&existing.activo!==false){notifyInvalid('IP y VLAN ya ocupadas por '+existing.cliente);return}
+  const old=id?records.find(r=>r.id===id):existing;
+  if(id&&!old){msg('formMsg','No se encontró el registro local.');return}
+  const next={...(old||{}),...payload,id:old?.id||crypto.randomUUID(),activo:true,updated_at:new Date().toISOString(),created_at:old?.created_at||new Date().toISOString()};
+  // No se puede confirmar disponibilidad global hasta volver internet.
+  await queueChange(old?'update':'insert',next,old||null);
+  records=old?records.map(r=>r.id===old.id?next:r):[next,...records];
+  await persistWorkspace();render();clearForm();
+  msg('formMsg','Guardado en este celular. Pendiente de sincronizar; sujeto a verificación de duplicados.');return;
  }
- if(result.error){msg('formMsg',result.error.code==='23505'?'Esa combinación de IP y VLAN ya está registrada.':result.error.message);return}
- clearForm();msg('formMsg','Registro guardado. La IP queda asignada al cliente actual.');await load()
+ let result;
+ if(id){result=await db.from('ip_registros').update(payload).eq('id',id).eq('company_id',activeCompanyId)}else{
+  const {data:existing,error:checkError}=await db.from('ip_registros').select('id,activo,cliente,vlan').eq('company_id',activeCompanyId).eq('ip',ip).eq('vlan',vlan).maybeSingle();
+  if(checkError){msg('formMsg',checkError.message);return}
+  if(existing&&existing.activo!==false){alert('La IP ya está asignada a '+existing.cliente+' en VLAN '+existing.vlan);return}
+  result=existing?await db.from('ip_registros').update({...payload,activo:true}).eq('id',existing.id).eq('company_id',activeCompanyId):await db.from('ip_registros').insert({...payload,activo:true});
+ }
+ if(result.error){msg('formMsg',result.error.message);return}
+ clearForm();msg('formMsg','Registro guardado.');await load()
+ } catch (error) {
+  console.error('PIPE NET: error al guardar registro', error);
+  msg('formMsg','No se pudo guardar: '+(error?.message||String(error))+'. El registro NO se confirmó como pendiente.');
+ }
 };
 $('clearBtn').onclick=clearForm;$('search').oninput=render;$('refreshBtn').onclick=load;
 function hideAccountPanels(){['login','app','recovery','newPassword'].forEach(id=>$(id).classList.add('hidden'))}
@@ -401,6 +456,16 @@ async function showApp(user){
  if(!navigator.onLine && currentProfile && document.getElementById('app') && !document.getElementById('app').classList.contains('hidden')){
   msg('formMsg','Sin internet. Se conserva la vista actual; los cambios requieren conexión hasta implementar la cola offline.');
   return;
+ }
+ if(!navigator.onLine){
+  const cached=await storeGet('profiles',user.id).catch(()=>null);
+  if(cached&&cached.profile?.is_active&&cached.company){
+   offlineUserId=user.id;currentProfile=cached.profile;activeCompanyId=cached.company;
+   hideAccountPanels();$('app').classList.remove('hidden');$('userLabel').textContent=cached.userEmail+' · modo local';
+   $('ownerCompanyPanel').classList.add('hidden');$('inviteUsersPanel').classList.add('hidden');
+   $('recordFormCard').classList.toggle('hidden',!['owner','company_admin','technician'].includes(currentProfile.role));
+   await localRestore();msg('formMsg','Modo local. Cambios pendientes hasta recuperar internet.');return;
+  }
  }
  currentProfile=null;activeCompanyId=null;records=[];
  hideAccountPanels();$('app').classList.remove('hidden');$('userLabel').textContent=user.email||'Sesión iniciada';
@@ -443,7 +508,9 @@ async function showApp(user){
  }
  const canWrite=['owner','company_admin','technician'].includes(profile.role);
  $('recordFormCard').classList.toggle('hidden',!canWrite);$('importFile').disabled=!canWrite;
- await load()
+ offlineUserId=user.id;
+ await storePut('profiles',{profile:currentProfile,company:activeCompanyId,userEmail:user.email,verified:Date.now()},user.id);
+ await load();await syncPending();
 }
 $('createCompanyBtn').onclick=async()=>{
  if(!currentProfile||currentProfile.role!=='owner'){msg('createCompanyMsg','Solo el propietario puede crear empresas.');return}
@@ -461,7 +528,7 @@ $('createCompanyBtn').onclick=async()=>{
  }catch(error){msg('createCompanyMsg','Error inesperado: '+(error.message||error))}
  finally{$('createCompanyBtn').disabled=false}
 };
-$('ownerCompanySelect').onchange=async()=>{activeCompanyId=$('ownerCompanySelect').value;clearForm();await load()};
+$('ownerCompanySelect').onchange=async()=>{if((await pendingOps()).length){alert('Sincroniza los cambios pendientes antes de cambiar de empresa.');$('ownerCompanySelect').value=activeCompanyId;return}activeCompanyId=$('ownerCompanySelect').value;clearForm();await load()};
 
 $('inviteUserBtn').onclick=async()=>{
  if(!currentProfile||!['owner','company_admin'].includes(currentProfile.role)){
@@ -506,7 +573,7 @@ $('inviteUserBtn').onclick=async()=>{
   $('inviteUserBtn').disabled=false;
  }
 };
-$('logoutBtn').onclick=async()=>{currentProfile=null;activeCompanyId=null;records=[];await db.auth.signOut();showLogin()};
+$('logoutBtn').onclick=async()=>{const uid=offlineUserId;currentProfile=null;activeCompanyId=null;offlineUserId=null;records=[];if(uid)await storeDel('profiles',uid);await db.auth.signOut();showLogin();await updateOfflineStatus()};
 // Detecta el enlace de invitación antes de que Supabase procese y limpie la URL.
 const invitationLinkDetected = /(?:type=invite|type%3Dinvite)/i.test(window.location.hash + window.location.search);
 function showPasswordSetup(){
@@ -616,7 +683,7 @@ if('serviceWorker' in navigator && location.protocol.startsWith('http')){
  const el=document.getElementById('pipeNetNetworkStatus');
  function update(){
   const online=navigator.onLine;
-  el.textContent=online?'Conexión disponible':'Sin internet · cambios no disponibles todavía';
+  updateOfflineStatus().catch(console.error);return;
   el.style.background=online?'#166534':'#991b1b';
  }
  window.addEventListener('online',update);
