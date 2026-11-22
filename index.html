@@ -400,7 +400,16 @@ async function showApp(user){
  currentProfile=null;activeCompanyId=null;records=[];
  hideAccountPanels();$('app').classList.remove('hidden');$('userLabel').textContent=user.email||'Sesión iniciada';
  const {data:profile,error:profileError}=await db.from('profiles').select('user_id,company_id,role,is_active').eq('user_id',user.id).single();
- if(profileError||!profile||!profile.is_active){await db.auth.signOut();showLogin();msg('loginMsg','Esta cuenta no tiene un perfil activo en PIPE NET. Contacta al propietario.');return}
+ if(profileError){
+  // Un error de red no significa que la cuenta haya sido desactivada.
+  // Nunca cerrar sesión por un fallo de consulta a Supabase.
+  msg('formMsg','No se pudo verificar el perfil. Conservamos tu sesión; conecta internet para cargar los datos. No se permiten cambios sin conexión en esta etapa.');
+  return;
+ }
+ if(!profile||!profile.is_active){
+  // La revocación confirmada por el servidor impide continuar.
+  await db.auth.signOut();showLogin();msg('loginMsg','Esta cuenta no tiene un perfil activo en PIPE NET. Contacta al propietario.');return;
+ }
  currentProfile=profile;
  const canInviteUsers=['owner','company_admin'].includes(profile.role);
  $('inviteUsersPanel').classList.toggle('hidden',!canInviteUsers);
@@ -503,11 +512,15 @@ db.auth.onAuthStateChange((event,session)=>{
   showPasswordSetup();
  }
 });
-db.auth.getSession().then(({data})=>{
+db.auth.getSession().then(({data,error})=>{
+ if(error){msg('loginMsg','No se pudo recuperar la sesión local. Comprueba la conexión.');return;}
  if(!data.session)return;
  if(invitationLinkDetected){showPasswordSetup();return;}
- showApp(data.session.user);
-});
+ showApp(data.session.user).catch(err=>{
+  console.error('Error al abrir PIPE NET:',err);
+  msg('formMsg','No se pudo cargar la información. La sesión no se cerró. Comprueba tu conexión.');
+ });
+}).catch(err=>{console.error('Error al recuperar sesión:',err);});
 $('exportBtn').onclick=async()=>{
  try{await ensureXLSX();
  const ws=XLSX.utils.json_to_sheet(records.map(({ip,vlan,cliente,onu_puerto,nap,observaciones,activo})=>({IP:ip,VLAN:vlan,Cliente:cliente,ONU_Puerto:onu_puerto,NAP:nap,Observaciones:observaciones,Estado:activo===false?'DESACTIVADO':'ACTIVO'})));

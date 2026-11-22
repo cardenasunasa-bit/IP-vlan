@@ -1,5 +1,5 @@
 /* PIPE NET: app shell offline, etapa 1. No almacena datos de Supabase en Cache Storage. */
-const CACHE_NAME='pipe-net-shell-v6';
+const CACHE_NAME='pipe-net-shell-v7';
 const SHELL=['./','./index.html','./manifest.json','./icons/icon-192.png','./icons/icon-512.png'];
 const SUPABASE_LIB='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2';
 self.addEventListener('install',event=>{
