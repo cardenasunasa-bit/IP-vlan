@@ -230,6 +230,12 @@ html, body { overscroll-behavior-y: none; }
 <div class="card"><div class="actions"><div style="flex:2"><b id="userLabel">Sesión iniciada</b><div class="muted">Los cambios se sincronizan con Supabase.</div></div><button class="secondary" id="installBtn" style="display:none">Instalar app</button><button class="secondary" id="refreshBtn">Actualizar</button><button class="danger" id="logoutBtn">Salir</button></div></div>
 <div class="card hidden" id="ownerCompanyPanel"><h2>Panel del propietario</h2><label>Empresa que vas a administrar<select id="ownerCompanySelect"></select></label><div class="muted">Selecciona una empresa para consultar y administrar sus registros.</div>
 <div class="status" style="margin-top:12px">
+ <b>Control de pagos y empresas</b>
+ <p class="muted">Solo el propietario. La suspensión conserva los datos y bloquea operaciones en línea según las políticas RLS.</p>
+ <div id="ownerCompaniesList"></div>
+ <div id="ownerCompaniesMsg" class="muted" aria-live="polite"></div>
+</div>
+<div class="status" style="margin-top:12px">
  <b>Crear una empresa nueva</b>
  <div class="muted">Cada empresa tendrá sus propios registros de IP y VLAN.</div>
  <label>Nombre de la empresa<input id="newCompanyName" type="text" maxlength="100" placeholder="Ejemplo: Empresa de prueba"></label>
@@ -253,6 +259,12 @@ html, body { overscroll-behavior-y: none; }
   <button id="inviteUserBtn" type="button">Enviar invitación</button>
  </div>
  <div id="inviteUserMsg" class="muted" aria-live="polite"></div>
+ <div id="ownerUsersControl" class="hidden" style="margin-top:16px">
+  <b>Activar o desactivar usuarios</b>
+  <p class="muted">Solo el propietario. Selecciona una empresa arriba para ver sus usuarios.</p>
+  <div id="ownerUsersList"></div>
+  <div id="ownerUsersMsg" class="muted" aria-live="polite"></div>
+ </div>
 </div>
 <div class="card" id="recordFormCard"><h2 id="formTitle">Registrar IP</h2><input id="recordId" type="hidden"><div class="grid">
 <label>Dirección IP<input id="ip" placeholder="10.1.0.100"></label>
@@ -451,6 +463,50 @@ $('saveNewPasswordBtn').onclick=async()=>{
  $('newPasswordValue').value='';$('confirmPasswordValue').value='';
  showLogin();msg('loginMsg','Contraseña actualizada. Ya puedes iniciar sesión con tu nueva contraseña.');
 };
+// Controles de propietario: siempre requieren conexión y permisos RLS del servidor.
+let ownerCompanies=[];
+async function ownerRefreshCompanies(){
+ if(currentProfile?.role!=='owner'||!navigator.onLine)return;
+ const {data,error}=await db.from('companies').select('id,name,status').order('name');
+ if(error){msg('ownerCompaniesMsg','No se pudieron consultar empresas: '+error.message);return}
+ ownerCompanies=data||[];
+ $('ownerCompanySelect').innerHTML=ownerCompanies.map(c=>'<option value="'+esc(c.id)+'" '+(c.status!=='active'?'disabled':'')+'>'+esc(c.name)+(c.status!=='active'?' (SUSPENDIDA)':'')+'</option>').join('');
+ if(ownerCompanies.some(c=>c.id===activeCompanyId&&c.status==='active'))$('ownerCompanySelect').value=activeCompanyId;
+ else if(ownerCompanies.some(c=>c.status==='active')){activeCompanyId=ownerCompanies.find(c=>c.status==='active').id;$('ownerCompanySelect').value=activeCompanyId;await load()}
+ else {activeCompanyId=null;records=[];render();}
+ $('ownerCompaniesList').innerHTML=ownerCompanies.map(c=>'<div class="actions" style="justify-content:space-between;align-items:center;margin:10px 0"><span><b>'+esc(c.name)+'</b><small class="muted" style="display:block">'+(c.status==='active'?'Activa':'Suspendida / '+esc(c.status))+'</small></span><button type="button" class="'+(c.status==='active'?'danger':'secondary')+'" data-company-toggle="'+esc(c.id)+'">'+(c.status==='active'?'Suspender':'Reactivar')+'</button></div>').join('');
+ $('ownerCompaniesList').querySelectorAll('[data-company-toggle]').forEach(btn=>btn.onclick=()=>ownerToggleCompany(btn.dataset.companyToggle));
+ await ownerRefreshUsers();
+}
+async function ownerToggleCompany(id){
+ if(currentProfile?.role!=='owner'||!navigator.onLine){msg('ownerCompaniesMsg','Necesitas conexión y permisos de propietario.');return}
+ const c=ownerCompanies.find(x=>x.id===id);if(!c)return;
+ const suspend=c.status==='active';
+ if(!confirm((suspend?'¿Suspender por falta de pago a ':'¿Reactivar a ')+c.name+'? Los datos no se borrarán.'))return;
+ if(suspend&&id===activeCompanyId&&(await pendingOps()).length){msg('ownerCompaniesMsg','Primero sincroniza los cambios pendientes de esta empresa.');return}
+ const {data,error}=await db.from('companies').update({status:suspend?'suspended':'active'}).eq('id',id).select('id,status').single();
+ if(error||!data){msg('ownerCompaniesMsg','No se pudo cambiar el estado: '+(error?.message||'Sin autorización'));return}
+ msg('ownerCompaniesMsg',c.name+(suspend?' suspendida por falta de pago.':' reactivada.'));
+ await ownerRefreshCompanies();
+}
+async function ownerRefreshUsers(){
+ if(currentProfile?.role!=='owner'||!navigator.onLine)return;
+ $('ownerUsersControl').classList.remove('hidden');
+ if(!activeCompanyId){$('ownerUsersList').textContent='Selecciona una empresa activa.';return}
+ const {data,error}=await db.from('profiles').select('user_id,company_id,role,is_active').eq('company_id',activeCompanyId).order('role');
+ if(error){msg('ownerUsersMsg','No se pudieron consultar usuarios: '+error.message);return}
+ const users=(data||[]).filter(u=>u.role!=='owner');
+ $('ownerUsersList').innerHTML=users.map(u=>'<div class="actions" style="justify-content:space-between;align-items:center;margin:10px 0"><span><b>'+esc(u.role==='company_admin'?'Administrador':'Técnico')+'</b><small class="muted" style="display:block">ID: '+esc(u.user_id.slice(0,8))+'… · '+(u.is_active?'Activo':'Desactivado')+'</small></span><button type="button" class="'+(u.is_active?'danger':'secondary')+'" data-user-toggle="'+esc(u.user_id)+'">'+(u.is_active?'Desactivar':'Reactivar')+'</button></div>').join('')||'<p class="muted">No hay administradores ni técnicos en esta empresa.</p>';
+ $('ownerUsersList').querySelectorAll('[data-user-toggle]').forEach(btn=>btn.onclick=()=>ownerToggleUser(btn.dataset.userToggle,users));
+}
+async function ownerToggleUser(id,users){
+ if(currentProfile?.role!=='owner'||!navigator.onLine){msg('ownerUsersMsg','Necesitas conexión y permisos de propietario.');return}
+ const u=users.find(x=>x.user_id===id);if(!u||u.role==='owner')return;
+ if(!confirm((u.is_active?'¿Desactivar':'¿Reactivar')+' este usuario? No se borrarán sus registros.'))return;
+ const {data,error}=await db.from('profiles').update({is_active:!u.is_active}).eq('user_id',id).eq('company_id',activeCompanyId).neq('role','owner').select('user_id').single();
+ if(error||!data){msg('ownerUsersMsg','No se pudo cambiar el usuario: '+(error?.message||'Sin autorización'));return}
+ msg('ownerUsersMsg','Estado del usuario actualizado.');await ownerRefreshUsers();
+}
 async function showApp(user){
  // Si se pierde la red, no reiniciar un espacio de trabajo ya autenticado.
  if(!navigator.onLine && currentProfile && document.getElementById('app') && !document.getElementById('app').classList.contains('hidden')){
@@ -499,6 +555,7 @@ async function showApp(user){
   const first=companies.find(c=>c.status==='active');
   if(!first){msg('formMsg','No hay empresas activas para administrar.');return}
   activeCompanyId=first.id;$('ownerCompanySelect').value=first.id;
+  await ownerRefreshCompanies();
  }else{
   $('ownerCompanyPanel').classList.add('hidden');
   if(!profile.company_id){msg('formMsg','La cuenta no tiene una empresa asignada. Contacta al propietario.');return}
@@ -524,11 +581,11 @@ $('createCompanyBtn').onclick=async()=>{
   if(loadError){msg('createCompanyMsg','La empresa se creó, pero no se pudo actualizar la lista: '+loadError.message);return}
   $('ownerCompanySelect').innerHTML=(companies||[]).map(c=>'<option value="'+esc(c.id)+'" '+(c.status!=='active'?'disabled':'')+'>'+esc(c.name)+(c.status!=='active'?' (SUSPENDIDA)':'')+'</option>').join('');
   activeCompanyId=data.id;$('ownerCompanySelect').value=data.id;$('newCompanyName').value='';
-  clearForm();await load();msg('createCompanyMsg','Empresa creada correctamente: '+data.name);
+  clearForm();await load();await ownerRefreshCompanies();msg('createCompanyMsg','Empresa creada correctamente: '+data.name);
  }catch(error){msg('createCompanyMsg','Error inesperado: '+(error.message||error))}
  finally{$('createCompanyBtn').disabled=false}
 };
-$('ownerCompanySelect').onchange=async()=>{if((await pendingOps()).length){alert('Sincroniza los cambios pendientes antes de cambiar de empresa.');$('ownerCompanySelect').value=activeCompanyId;return}activeCompanyId=$('ownerCompanySelect').value;clearForm();await load()};
+$('ownerCompanySelect').onchange=async()=>{if((await pendingOps()).length){alert('Sincroniza los cambios pendientes antes de cambiar de empresa.');$('ownerCompanySelect').value=activeCompanyId;return}activeCompanyId=$('ownerCompanySelect').value;clearForm();await load();await ownerRefreshUsers()};
 
 $('inviteUserBtn').onclick=async()=>{
  if(!currentProfile||!['owner','company_admin'].includes(currentProfile.role)){
