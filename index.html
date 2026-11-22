@@ -397,6 +397,11 @@ $('saveNewPasswordBtn').onclick=async()=>{
  showLogin();msg('loginMsg','Contraseña actualizada. Ya puedes iniciar sesión con tu nueva contraseña.');
 };
 async function showApp(user){
+ // Si se pierde la red, no reiniciar un espacio de trabajo ya autenticado.
+ if(!navigator.onLine && currentProfile && document.getElementById('app') && !document.getElementById('app').classList.contains('hidden')){
+  msg('formMsg','Sin internet. Se conserva la vista actual; los cambios requieren conexión hasta implementar la cola offline.');
+  return;
+ }
  currentProfile=null;activeCompanyId=null;records=[];
  hideAccountPanels();$('app').classList.remove('hidden');$('userLabel').textContent=user.email||'Sesión iniciada';
  const {data:profile,error:profileError}=await db.from('profiles').select('user_id,company_id,role,is_active').eq('user_id',user.id).single();
@@ -407,6 +412,8 @@ async function showApp(user){
   return;
  }
  if(!profile||!profile.is_active){
+  // Una respuesta sin perfil durante una interrupción no confirma revocación.
+  if(!navigator.onLine){msg('formMsg','Sin internet. No se puede verificar el perfil todavía; no se permiten cambios.');return;}
   // La revocación confirmada por el servidor impide continuar.
   await db.auth.signOut();showLogin();msg('loginMsg','Esta cuenta no tiene un perfil activo en PIPE NET. Contacta al propietario.');return;
  }
