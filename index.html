@@ -590,4 +590,18 @@ if('serviceWorker' in navigator && location.protocol.startsWith('http')){
  document.getElementById('pipeZoomReset').addEventListener('click',()=>{value=100;apply()});
  apply();
 })();
-</script></body></html>
+</script><div id="pipeNetNetworkStatus" role="status" aria-live="polite" style="position:fixed;bottom:12px;left:12px;z-index:99999;background:#1f2937;color:white;padding:7px 12px;border-radius:16px;font:12px Arial,sans-serif;box-shadow:0 2px 8px #0004;pointer-events:none">Comprobando conexión…</div>
+<script>
+(function(){
+ const el=document.getElementById('pipeNetNetworkStatus');
+ function update(){
+  const online=navigator.onLine;
+  el.textContent=online?'Conexión disponible':'Sin internet · cambios no disponibles todavía';
+  el.style.background=online?'#166534':'#991b1b';
+ }
+ window.addEventListener('online',update);
+ window.addEventListener('offline',update);
+ update();
+})();
+</script>
+</body></html>
