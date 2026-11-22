@@ -196,10 +196,16 @@ html,body{touch-action:pan-x pan-y}
  #app>.card:last-child{min-height:calc(100svh - 535px)}
 }
 
+
+/* PIPE NET: control de tamaño, sin modificar lógica ni datos */
+.pipe-zoom-controls{display:flex;align-items:center;justify-content:flex-end;gap:7px;flex-wrap:wrap;margin-top:12px}
+.pipe-zoom-controls button{width:auto;min-width:45px;min-height:44px;margin:0;padding:8px 12px}
+.pipe-zoom-controls output{font-weight:700;min-width:48px;text-align:center}
+@media(max-width:600px){.pipe-zoom-controls{justify-content:center}}
 </style>
 </head>
 <body><div id="validationToast" class="toast-notification" role="alert" aria-live="assertive"></div><main class="wrap">
-<header class="card"><h1>Gestor IP + VLAN para ISP</h1><div class="muted">Registro compartido de IP, VLAN, cliente, ONU/puerto y NAP.</div></header>
+<header class="card"><h1>Gestor IP + VLAN para ISP</h1><div class="muted">Registro compartido de IP, VLAN, cliente, ONU/puerto y NAP.</div><div class="pipe-zoom-controls" role="group" aria-label="Tamaño de visualización"><span aria-hidden="true">🔍</span><button type="button" class="secondary" id="pipeZoomOut" aria-label="Reducir tamaño">A−</button><output id="pipeZoomValue" aria-live="polite">100%</output><button type="button" class="secondary" id="pipeZoomIn" aria-label="Aumentar tamaño">A+</button><button type="button" class="secondary" id="pipeZoomReset">100%</button></div></header>
 <section id="login" class="card"><h2>Iniciar sesión</h2><p class="muted">Ingresa con el correo y la contraseña creados en Supabase.</p><input id="email" type="email" placeholder="Correo electrónico"><input id="password" type="password" placeholder="Contraseña"><button id="loginBtn">Entrar</button>
 <button id="forgotBtn" class="secondary">¿Olvidaste tu contraseña?</button>
 <div id="loginMsg" class="status">Conéctate para ver los registros compartidos.</div></section>
@@ -570,4 +576,18 @@ if('serviceWorker' in navigator && location.protocol.startsWith('http')){
 // Campos de entrada sin saltos de desplazamiento ni ampliaciones animadas.
 
 
+
+// Control local de ampliación (solo visual): no toca Supabase ni registros.
+(function(){
+ const root=document.querySelector('main.wrap');
+ const display=document.getElementById('pipeZoomValue');
+ const key='pipe-net-ui-zoom-v1';
+ let value=100;
+ try{const saved=Number(localStorage.getItem(key));if(Number.isFinite(saved)&&saved>=80&&saved<=150&&saved%10===0)value=saved;}catch(e){}
+ function apply(){root.style.zoom=String(value/100);display.textContent=value+'%';try{localStorage.setItem(key,String(value))}catch(e){}}
+ document.getElementById('pipeZoomIn').addEventListener('click',()=>{value=Math.min(150,value+10);apply()});
+ document.getElementById('pipeZoomOut').addEventListener('click',()=>{value=Math.max(80,value-10);apply()});
+ document.getElementById('pipeZoomReset').addEventListener('click',()=>{value=100;apply()});
+ apply();
+})();
 </script></body></html>
