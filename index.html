@@ -203,6 +203,7 @@ html,body{touch-action:pan-x pan-y}
 .pipe-zoom-controls output{font-weight:700;min-width:48px;text-align:center}
 @media(max-width:600px){.pipe-zoom-controls{justify-content:center}}
 html, body { overscroll-behavior-y: none; }
+.gps-entry-box{margin-top:15px;padding:14px;border:1px solid #fecaca;background:#fff7f7;border-radius:12px}.gps-entry-box p{margin:8px 0}.gps-button,.gps-map-button{background:#991b1b!important;color:#fff!important;border:1px solid #7f1d1d!important}.gps-button:hover,.gps-map-button:hover{background:#7f1d1d!important}.gps-map-button{background:#171717!important;border-color:#171717!important}.gps-map-button:hover{background:#3f3f46!important}.gps-entry-box .hidden{display:none!important}
 </style>
 </head>
 <body><div id="validationToast" class="toast-notification" role="alert" aria-live="assertive"></div><main class="wrap">
@@ -273,7 +274,9 @@ html, body { overscroll-behavior-y: none; }
 <label>ONU / Puerto<input id="onu" placeholder="ONU o puerto"></label>
 <label>NAP / Caja<input id="nap" placeholder="NAP"></label>
 <label>Observaciones<input id="obs" placeholder="Observaciones"></label>
-</div><div class="actions"><button id="saveBtn">Guardar registro</button><button class="secondary" id="clearBtn">Limpiar</button></div><div id="formMsg" class="muted"></div></div>
+</div>
+<div class="gps-entry-box"><strong>📍 Ubicación GPS de la ONU</strong><p class="muted">Captura el punto cuando estés junto a la ONU. Se guardará junto con la IP al presionar «Guardar registro».</p><div id="gpsFormStatus" class="muted" aria-live="polite">Sin coordenadas capturadas.</div><div class="actions"><button type="button" class="gps-button" id="formGpsBtn">📍 Capturar GPS (≤ 10 m)</button><button type="button" class="gps-map-button hidden" id="formMapBtn">🗺️ Ver punto en Google Maps</button></div></div>
+<div class="actions"><button id="saveBtn">Guardar registro</button><button class="secondary" id="clearBtn">Limpiar</button></div><div id="formMsg" class="muted"></div></div>
 <div class="card"><h2>Registros guardados <span class="tag" id="count">0</span></h2><p class="muted">Verde: cliente activo e IP ocupada. Rojo: cliente desactivado e IP disponible para reasignar.</p><input id="search" placeholder="Buscar por IP, cliente, VLAN, NAP..."><div class="actions"><button class="secondary" id="exportBtn">Exportar Excel</button><button class="secondary" id="pdfBtn">Exportar PDF</button><button class="secondary" id="jsonBtn">Descargar copia JSON</button><label class="actions" style="align-items:center;flex:1"><span>Importar Excel</span><input id="importFile" type="file" accept=".xlsx,.xls,.csv"></label></div><div class="tablewrap"><table><thead><tr><th>IP</th><th>VLAN</th><th>Cliente</th><th>ONU/Puerto</th><th>NAP</th><th>Observaciones</th><th>Estado</th><th>Acciones</th></tr></thead><tbody id="rows"></tbody></table></div></div>
 </section></main>
 <script>
@@ -320,7 +323,9 @@ function validIP(s){
  return /^\d{1,3}(\.\d{1,3}){3}$/.test(value)&&p.length===4&&p.every(x=>Number(x)>=0&&Number(x)<=255);
 }
 function suggestedVlan(ip){const m=ip.trim().match(/^10\.(\d+)\.0\.\d+$/);return m?Number(m[1])+100:null}
-function clearForm(){document.body.classList.remove('field-entry-focus');['recordId','ip','vlan','cliente','onu','nap','obs'].forEach(x=>$(x).value='');$('formTitle').textContent='Registrar IP';msg('formMsg','')}
+let formGps=null;
+function updateFormGpsUI(){const r=formGps;const has=validOnuGPS(r);$('gpsFormStatus').textContent=has?'Coordenadas: '+Number(r.gps_latitud).toFixed(7)+', '+Number(r.gps_longitud).toFixed(7)+' · precisión ±'+Number(r.gps_precision_m).toFixed(1)+' m'+(r.pending?' · pendiente de guardar':''):'Sin coordenadas capturadas.';$('formGpsBtn').textContent=has?'📍 Actualizar punto GPS (≤ 10 m)':'📍 Capturar GPS (≤ 10 m)';$('formMapBtn').classList.toggle('hidden',!has)}
+function clearForm(){formGps=null;updateFormGpsUI();document.body.classList.remove('field-entry-focus');['recordId','ip','vlan','cliente','onu','nap','obs'].forEach(x=>$(x).value='');$('formTitle').textContent='Registrar IP';msg('formMsg','')}
 $('ip').addEventListener('input',()=>{const v=suggestedVlan($('ip').value);if(v&&(!$('vlan').value||$('vlan').dataset.auto==='1')){$('vlan').value=v;$('vlan').dataset.auto='1'}});
 $('vlan').addEventListener('input',()=>{$('vlan').dataset.auto='0'});
 // PIPE NET offline: datos locales por usuario y empresa, cola durable y detección de conflictos.
@@ -383,7 +388,7 @@ async function load(){
  const pending=await pendingOps();if(pending.length){await localRestore();msg('formMsg','Hay cambios pendientes. Se conservan los datos locales hasta sincronizar.');return}
  records=data||[];render();await persistWorkspace();
 }
-function render(){const q=$('search').value.toLowerCase();const list=records.filter(r=>[r.ip,r.vlan,r.cliente,r.onu_puerto,r.nap,r.observaciones].join(' ').toLowerCase().includes(q));const canWrite=currentProfile&&['owner','company_admin','technician'].includes(currentProfile.role);$('count').textContent=records.length;$('rows').innerHTML=list.map(r=>`<tr><td data-label="IP">${esc(r.ip)}</td><td data-label="VLAN">${r.vlan}</td><td data-label="Cliente">${esc(r.cliente||'')}</td><td data-label="ONU / Puerto">${esc(r.onu_puerto||'')}</td><td data-label="NAP">${esc(r.nap||'')}</td><td data-label="Observaciones">${esc(r.observaciones||'')}</td><td data-label="Estado">${canWrite?`<button class="state ${r.activo===false?'off':'on'}" onclick="toggleActive('${r.id}')">${r.activo===false?'DESACTIVADO':'ACTIVO'}</button>`:(r.activo===false?'DESACTIVADO':'ACTIVO')}</td><td data-label="Acciones"><button class="secondary" onclick="openIP('${r.id}')">Abrir ONU</button>${validOnuGPS(r)?`<button class="secondary" onclick="openOnuMap('${r.id}')">📍 Google Maps</button>`:''}${canWrite?`<button class="secondary" onclick="captureOnuGPS('${r.id}')">🎯 ${validOnuGPS(r)?'Actualizar GPS':'Capturar GPS'}</button>`:''}${canWrite?`<button class="secondary" onclick="editRec('${r.id}')">Editar</button><button class="danger" onclick="deleteRec('${r.id}')">Eliminar</button>`:''}</td></tr>`).join('')||'<tr><td colspan="8">No hay registros para mostrar.</td></tr>'}
+function render(){const q=$('search').value.toLowerCase();const list=records.filter(r=>[r.ip,r.vlan,r.cliente,r.onu_puerto,r.nap,r.observaciones].join(' ').toLowerCase().includes(q));const canWrite=currentProfile&&['owner','company_admin','technician'].includes(currentProfile.role);$('count').textContent=records.length;$('rows').innerHTML=list.map(r=>`<tr><td data-label="IP">${esc(r.ip)}</td><td data-label="VLAN">${r.vlan}</td><td data-label="Cliente">${esc(r.cliente||'')}</td><td data-label="ONU / Puerto">${esc(r.onu_puerto||'')}</td><td data-label="NAP">${esc(r.nap||'')}</td><td data-label="Observaciones">${esc(r.observaciones||'')}</td><td data-label="Estado">${canWrite?`<button class="state ${r.activo===false?'off':'on'}" onclick="toggleActive('${r.id}')">${r.activo===false?'DESACTIVADO':'ACTIVO'}</button>`:(r.activo===false?'DESACTIVADO':'ACTIVO')}</td><td data-label="Acciones"><button class="secondary" onclick="openIP('${r.id}')">Abrir ONU</button>${validOnuGPS(r)?`<button class="gps-map-button" onclick="openOnuMap('${r.id}')">📍 Google Maps</button>`:''}${canWrite?`<button class="gps-button" onclick="captureOnuGPS('${r.id}')">🎯 ${validOnuGPS(r)?'Actualizar GPS':'Capturar GPS'}</button>`:''}${canWrite?`<button class="secondary" onclick="editRec('${r.id}')">Editar</button><button class="danger" onclick="deleteRec('${r.id}')">Eliminar</button>`:''}</td></tr>`).join('')||'<tr><td colspan="8">No hay registros para mostrar.</td></tr>'}
 function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
 // GPS por registro: solo se almacena en Supabase después de obtener precisión <= 10 m.
 function validOnuGPS(r){return r&&Number.isFinite(Number(r.gps_latitud))&&Number.isFinite(Number(r.gps_longitud))&&r.gps_latitud!==null&&r.gps_longitud!==null&&Math.abs(Number(r.gps_latitud))<=90&&Math.abs(Number(r.gps_longitud))<=180}
@@ -394,43 +399,49 @@ window.openOnuMap=id=>{
  window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(coords),'_blank','noopener,noreferrer');
 };
 let gpsCaptureBusy=false;
-window.captureOnuGPS=async id=>{
- if(gpsCaptureBusy)return;
- if(!canOfflineWrite()||!currentProfile||!['owner','company_admin','technician'].includes(currentProfile.role)){notifyInvalid('No tienes permiso para capturar GPS.');return}
- if(!navigator.onLine){notifyInvalid('Conéctate a internet para guardar las coordenadas de forma segura.');return}
- if(!window.isSecureContext||!navigator.geolocation){notifyInvalid('El GPS requiere HTTPS y un navegador con geolocalización habilitada.');return}
- const r=records.find(x=>String(x.id)===String(id)&&x.company_id===activeCompanyId);
- if(!r){notifyInvalid('No se encontró la ONU en la empresa activa.');return}
+function acquirePreciseGPS(onSuccess,status){
+ if(gpsCaptureBusy){notifyInvalid('Ya hay una captura GPS en curso.');return}
+ if(!canOfflineWrite()){notifyInvalid('No tienes permiso para capturar GPS.');return}
+ if(!window.isSecureContext||!navigator.geolocation){notifyInvalid('El GPS requiere HTTPS y permisos de ubicación.');return}
  gpsCaptureBusy=true;
- let watchId=null, timeoutId=null, finished=false, bestAccuracy=Infinity;
+ let watchId=null,timeoutId=null,finished=false,best=Infinity;
  const finish=()=>{if(finished)return false;finished=true;if(watchId!==null)navigator.geolocation.clearWatch(watchId);if(timeoutId!==null)clearTimeout(timeoutId);gpsCaptureBusy=false;return true};
- msg('formMsg','GPS: esperando una lectura con precisión de 10 metros o mejor. Permite la ubicación y permanece junto a la ONU (máximo 60 segundos).');
- const savePosition=async pos=>{
-  if(finished)return;
-  const {latitude,longitude,accuracy}=pos.coords;
-  if(!Number.isFinite(latitude)||!Number.isFinite(longitude)||!Number.isFinite(accuracy)||accuracy<0)return;
-  bestAccuracy=Math.min(bestAccuracy,accuracy);
-  if(accuracy>10){msg('formMsg','GPS: mejor precisión '+bestAccuracy.toFixed(1)+' m. Esperando 10 m o menos...');return}
+ status('Buscando GPS con precisión de 10 m o mejor (máximo 60 segundos)...');
+ const success=pos=>{if(finished)return;const {latitude,longitude,accuracy}=pos.coords;
+  if(!Number.isFinite(latitude)||!Number.isFinite(longitude)||!Number.isFinite(accuracy)||accuracy<0||Math.abs(latitude)>90||Math.abs(longitude)>180)return;
+  best=Math.min(best,accuracy);
+  if(accuracy>10){status('Mejor precisión: ±'+best.toFixed(1)+' m. Esperando 10 m o menos...');return}
   if(!finish())return;
-  msg('formMsg','GPS: precisión '+accuracy.toFixed(1)+' m. Guardando en Supabase...');
-  try{
-   if((await pendingOps()).length){msg('formMsg','No se guardó el GPS: primero sincroniza los cambios pendientes.');return}
-   const {data,error}=await db.from('ip_registros').update({gps_latitud:latitude,gps_longitud:longitude,gps_precision_m:accuracy,gps_fecha:new Date(pos.timestamp||Date.now()).toISOString()}).eq('id',id).eq('company_id',activeCompanyId).select('id,gps_latitud,gps_longitud,gps_precision_m,gps_fecha');
-   if(error)throw error;
-   if(!data||data.length!==1)throw new Error('No se confirmó la actualización. Verifica los permisos del registro.');
-   msg('formMsg','Ubicación GPS guardada con precisión estimada de '+accuracy.toFixed(1)+' m.');
-   await load();
-  }catch(error){msg('formMsg','No se pudo guardar el GPS: '+(error.message||String(error)))}
+  Promise.resolve(onSuccess({gps_latitud:latitude,gps_longitud:longitude,gps_precision_m:accuracy,gps_fecha:new Date(pos.timestamp||Date.now()).toISOString()})).catch(e=>status('No se pudo guardar GPS: '+(e.message||String(e))));
  };
  try{
-  watchId=navigator.geolocation.watchPosition(savePosition,error=>{
-   if(!finish())return;
-   const detail=error.code===1?'Permiso de ubicación denegado.':error.code===2?'No se pudo obtener la ubicación.':'Tiempo de espera agotado.';
-   msg('formMsg','GPS: '+detail+' No se guardaron coordenadas.');
-  },{enableHighAccuracy:true,maximumAge:0,timeout:20000});
+  watchId=navigator.geolocation.watchPosition(success,e=>{if(!finish())return;status('GPS: '+(e.code===1?'Permiso denegado.':e.code===2?'Ubicación no disponible.':'Tiempo de espera agotado.')+' No se guardó el punto.')},{enableHighAccuracy:true,maximumAge:0,timeout:20000});
   if(finished&&watchId!==null)navigator.geolocation.clearWatch(watchId);
-  timeoutId=setTimeout(()=>{if(!finish())return;msg('formMsg','GPS: no se alcanzó la precisión requerida en 60 segundos'+(bestAccuracy<Infinity?' (mejor lectura: '+bestAccuracy.toFixed(1)+' m)':'')+'. No se guardaron coordenadas.');},60000);
- }catch(error){finish();msg('formMsg','GPS no disponible: '+(error.message||String(error)))}
+  timeoutId=setTimeout(()=>{if(!finish())return;status('No se alcanzó precisión ≤ 10 m en 60 segundos'+(best<Infinity?' (mejor: ±'+best.toFixed(1)+' m)':'')+'.')},60000);
+ }catch(e){finish();status('GPS no disponible: '+(e.message||String(e)))}
+}
+$('formGpsBtn').onclick=()=>{
+ const companyAtStart=activeCompanyId,recordAtStart=$('recordId').value;
+ acquirePreciseGPS(coords=>{
+  if(companyAtStart!==activeCompanyId||recordAtStart!==$('recordId').value){msg('formMsg','Cambiaste de registro durante la captura; punto descartado.');return}
+  formGps={...coords,pending:true};updateFormGpsUI();msg('formMsg','Punto GPS listo (±'+coords.gps_precision_m.toFixed(1)+' m). Presiona Guardar registro para almacenarlo.');
+ },t=>msg('formMsg',t));
+};
+$('formMapBtn').onclick=()=>{if(!validOnuGPS(formGps))return;window.open('https://www.google.com/maps/search/?api=1&query='+encodeURIComponent(formGps.gps_latitud+','+formGps.gps_longitud),'_blank','noopener,noreferrer')};
+window.captureOnuGPS=id=>{
+ if(!navigator.onLine){notifyInvalid('Conéctate a internet para actualizar el GPS de la ONU.');return}
+ const r=records.find(x=>String(x.id)===String(id)&&x.company_id===activeCompanyId);
+ if(!r){notifyInvalid('No se encontró la ONU en esta empresa.');return}
+ const companyAtStart=activeCompanyId;
+ acquirePreciseGPS(async coords=>{
+  if(activeCompanyId!==companyAtStart)throw Error('Cambiaste de empresa durante la captura.');
+  if((await pendingOps()).length)throw Error('Sincroniza primero los cambios pendientes.');
+  msg('formMsg','Guardando coordenadas en Supabase...');
+  const {data,error}=await db.from('ip_registros').update(coords).eq('id',id).eq('company_id',companyAtStart).select('id,gps_latitud');
+  if(error)throw error;
+  if(!data||data.length!==1)throw Error('No se confirmó la actualización GPS.');
+  await load();msg('formMsg','Punto GPS actualizado con precisión ±'+coords.gps_precision_m.toFixed(1)+' m.');
+ },t=>msg('formMsg',t));
 };
 window.openIP=id=>{
  const r=records.find(x=>String(x.id)===String(id));
@@ -443,7 +454,7 @@ window.openIP=id=>{
  // Se abre desde el toque del usuario para evitar bloqueos de ventanas emergentes.
  window.open('http://'+ip+'/', '_blank', 'noopener,noreferrer');
 };
-window.editRec=id=>{if(!currentProfile||!['owner','company_admin','technician'].includes(currentProfile.role))return;const r=records.find(x=>x.id===id);if(!r)return;$('recordId').value=r.id;$('ip').value=r.ip;$('vlan').value=r.vlan;$('cliente').value=r.cliente||'';$('onu').value=r.onu_puerto||'';$('nap').value=r.nap||'';$('obs').value=r.observaciones||'';$('formTitle').textContent='Editar registro';window.scrollTo({top:0,behavior:'smooth'})};
+window.editRec=id=>{if(!currentProfile||!['owner','company_admin','technician'].includes(currentProfile.role))return;const r=records.find(x=>x.id===id);if(!r)return;$('recordId').value=r.id;$('ip').value=r.ip;$('vlan').value=r.vlan;$('cliente').value=r.cliente||'';$('onu').value=r.onu_puerto||'';$('nap').value=r.nap||'';$('obs').value=r.observaciones||'';formGps=validOnuGPS(r)?{gps_latitud:r.gps_latitud,gps_longitud:r.gps_longitud,gps_precision_m:r.gps_precision_m,gps_fecha:r.gps_fecha,pending:false}:null;updateFormGpsUI();$('formTitle').textContent='Editar registro';window.scrollTo({top:0,behavior:'smooth'})};
 window.toggleActive=async id=>{if(!canOfflineWrite())return;if(navigator.onLine&&(await pendingOps()).length){await syncPending();return}const r=records.find(x=>x.id===id);if(!r)return;
  if(!navigator.onLine){const next={...r,activo:r.activo===false,updated_at:new Date().toISOString()};await queueChange('update',next,r);records=records.map(x=>x.id===id?next:x);render();await persistWorkspace();return}
  const {error}=await db.from('ip_registros').update({activo:r.activo===false}).eq('id',id).eq('company_id',activeCompanyId);if(error){alert(error.message);return}await load()};
@@ -457,6 +468,7 @@ $('saveBtn').onclick=async()=>{
  if(!Number.isInteger(vlan)||vlan<1||vlan>4094){notifyInvalid('VLAN debe estar entre 1 y 4094.');return}
  if(!canOfflineWrite()){msg('formMsg','Sin permisos de escritura verificados.');return}
  const payload={ip,vlan,cliente:$('cliente').value.trim(),onu_puerto:$('onu').value.trim(),nap:$('nap').value.trim(),observaciones:$('obs').value.trim(),company_id:activeCompanyId};
+ if(formGps?.pending){if(!validOnuGPS(formGps)||!(formGps.gps_precision_m<=10)){notifyInvalid('La ubicación GPS debe tener precisión de 10 m o mejor.');return}Object.assign(payload,{gps_latitud:formGps.gps_latitud,gps_longitud:formGps.gps_longitud,gps_precision_m:formGps.gps_precision_m,gps_fecha:formGps.gps_fecha})}
  if(navigator.onLine&&(await pendingOps()).length){msg('formMsg','Primero deben sincronizarse los cambios pendientes.');await syncPending();return}
  if(!navigator.onLine){
   const existing=records.find(r=>r.company_id===activeCompanyId&&r.ip===ip&&Number(r.vlan)===vlan);
