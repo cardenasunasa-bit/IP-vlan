@@ -235,6 +235,13 @@ html, body { overscroll-behavior-y: none; }
  <p class="muted">Solo el propietario. La suspensión conserva los datos y bloquea operaciones en línea según las políticas RLS.</p>
  <div id="ownerCompaniesList"></div>
  <div id="ownerCompaniesMsg" class="muted" aria-live="polite"></div>
+ <div class="status" style="margin-top:12px">
+  <b>Prueba de respaldo privado</b>
+  <p class="muted">Solo propietario. Genera el archivo para una solicitud pendiente; no envía correo ni elimina datos.</p>
+  <label>ID de solicitud de baja<input id="backupRequestId" type="text" autocomplete="off" placeholder="UUID de solicitud pendiente"></label>
+  <button type="button" id="backupTestBtn" class="secondary">Generar respaldo de prueba</button>
+  <div id="backupTestMsg" class="muted" aria-live="polite"></div>
+ </div>
 </div>
 <div class="status" style="margin-top:12px">
  <b>Crear una empresa nueva</b>
@@ -527,6 +534,34 @@ async function ownerRefreshCompanies(){
  $('ownerCompaniesList').querySelectorAll('[data-company-toggle]').forEach(btn=>btn.onclick=()=>ownerToggleCompany(btn.dataset.companyToggle));
  await ownerRefreshUsers();
 }
+async function ownerGenerateTestBackup(){
+ const button=$('backupTestBtn');
+ if(currentProfile?.role!=='owner'||!navigator.onLine){msg('backupTestMsg','Necesitas conexión y una sesión de propietario.');return}
+ const requestId=$('backupRequestId').value.trim();
+ if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestId)){
+  msg('backupTestMsg','Introduce un identificador UUID válido.');return;
+ }
+ if(!confirm('¿Generar el respaldo privado para esta solicitud? Esta prueba no envía correos ni elimina empresas.'))return;
+ button.disabled=true;msg('backupTestMsg','Generando respaldo privado…');
+ try{
+  const {data:sessionData,error:sessionError}=await db.auth.getSession();
+  if(sessionError||!sessionData?.session?.access_token)throw Error('No hay sesión activa. Inicia sesión nuevamente.');
+  const {data,error}=await db.functions.invoke('pipe-net-generar-respaldo',{
+   body:{request_id:requestId}
+  });
+  if(error){
+   let detail=error.message||'Error de la función';
+   try{if(error.context&&typeof error.context.json==='function'){
+    const response=await error.context.json();detail=response.error||response.message||detail;
+   }}catch(_e){}
+   throw Error(detail);
+  }
+  if(!data?.ok)throw Error(data?.error||'El servidor no confirmó el respaldo.');
+  msg('backupTestMsg','Respuesta del servidor: '+(data.message||'Respaldo generado')+' · Estado: '+(data.status||'sin estado')+'. Comprueba el archivo en Storage y el registro en SQL.');
+ }catch(e){msg('backupTestMsg','No se pudo confirmar el respaldo: '+(e.message||String(e))+'. No repitas la prueba sin revisar Storage y SQL.');}
+ finally{button.disabled=false;}
+}
+$('backupTestBtn').onclick=ownerGenerateTestBackup;
 async function ownerToggleCompany(id){
  if(currentProfile?.role!=='owner'||!navigator.onLine){msg('ownerCompaniesMsg','Necesitas conexión y permisos de propietario.');return}
  const c=ownerCompanies.find(x=>x.id===id);if(!c)return;
