@@ -229,7 +229,8 @@ html, body { overscroll-behavior-y: none; }
 </section>
 <section id="app" class="hidden">
 <div class="card"><div class="actions"><div style="flex:2"><b id="userLabel">Sesión iniciada</b><div class="muted">Los cambios se sincronizan con Supabase.</div></div><button class="secondary" id="installBtn" style="display:none">Instalar app</button><button class="secondary" id="refreshBtn">Actualizar</button><button class="danger" id="logoutBtn">Salir</button></div></div>
-<div class="card hidden" id="ownerCompanyPanel"><h2>Panel del propietario</h2><label>Empresa que vas a administrar<select id="ownerCompanySelect"></select></label><div class="muted">Selecciona una empresa para consultar y administrar sus registros.</div>
+<div class="card hidden" id="ownerCompanyPanel"><h2>Panel del propietario</h2>
+<div class="status" style="margin-top:10px"><b>💳 Control de gastos</b><p class="muted">Registra comida, combustible, peajes, calibración de llantas, agua y otros. Fotografías privadas y conservación prevista de dos meses.</p><a class="btn" href="./gastos.html" style="display:block;padding:12px;background:#1264c5;color:#fff;text-decoration:none;text-align:center;border-radius:9px;font-weight:bold">Abrir módulo de gastos</a></div><label>Empresa que vas a administrar<select id="ownerCompanySelect"></select></label><div class="muted">Selecciona una empresa para consultar y administrar sus registros.</div>
 <div class="status" style="margin-top:12px">
  <b>Control de pagos y empresas</b>
  <p class="muted">Solo el propietario. La suspensión conserva los datos y bloquea operaciones en línea según las políticas RLS.</p>
